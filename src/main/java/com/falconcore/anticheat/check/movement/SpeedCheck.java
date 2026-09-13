@@ -161,6 +161,9 @@ public class SpeedCheck extends Check {
 
         double ceilingBonus = data.isUnderLowCeiling() ? 0.12 : 0.0;
         double wallBonus = data.isNearWall() ? 0.03 : 0.0;
+        double combatBonus = (data.getAttackTicks() > 0 ? 0.08 : 0.0)
+                + (data.getDamageTicks() > 0 ? 0.45 : 0.0)
+                + (data.getNearbyEntityCount() > 0 ? Math.min(0.25, data.getNearbyEntityCount() * 0.08) : 0.0);
 
         if (typeBEnabled && (airTicks >= 1 || !data.isOnGround()) && !data.isBouncedOnSlime() && !data.isBouncedOnBed() && !isLegitRiptide && data.getRiptideTicks() <= 0) {
             boolean isMidAirFlight = airTicks >= 3 && Math.abs(deltaY) < 0.05 && Math.abs(data.getLastDeltaY()) < 0.05 && !data.isNearSolidBelow() && !data.isOnGround();
@@ -168,7 +171,8 @@ public class SpeedCheck extends Check {
                 double ceilingAirBonus = data.isUnderLowCeiling() ? 0.08 : 0.0;
                 double wallAirBonus = data.isNearWall() ? 0.03 : 0.0;
 
-                double maxAirLaunch = (0.612 * potionMultiplier) + soulSpeedBonus + ceilingAirBonus + wallAirBonus + velBonusXZ + 0.025;
+                double baseAirLaunch = (player.isSprinting() || lastDeltaXZ > 0.25) ? 0.730 : 0.612;
+                double maxAirLaunch = (baseAirLaunch * potionMultiplier) + soulSpeedBonus + ceilingAirBonus + wallAirBonus + velBonusXZ + combatBonus + 0.035;
 
                 if (airTicks == 1) {
                     if (deltaXZ > maxAirLaunch) {
@@ -178,8 +182,8 @@ public class SpeedCheck extends Check {
                     }
                 } else if (airTicks >= 2 && lastDeltaXZ > 0.05) {
                     double clampedPrev = Math.min(maxAirLaunch, lastDeltaXZ);
-                    double strafeAccel = (player.isSprinting() ? 0.026 : 0.020) * potionMultiplier;
-                    double expectedMaxAirSpeed = (clampedPrev * typeBAirFriction) + strafeAccel + (speedBoostLevel * 0.010) + ceilingAirBonus + wallAirBonus + velBonusXZ + 0.015;
+                    double strafeAccel = Math.max(typeBMaxStrafeAccel, player.isSprinting() ? 0.032 : 0.022) * potionMultiplier;
+                    double expectedMaxAirSpeed = (clampedPrev * typeBAirFriction) + strafeAccel + (speedBoostLevel * 0.010) + ceilingAirBonus + wallAirBonus + velBonusXZ + combatBonus + 0.028;
 
                     if (deltaXZ > expectedMaxAirSpeed) {
                         fail(player, data, "Type B (Bhop)", typeBVlIncrement,
@@ -192,10 +196,10 @@ public class SpeedCheck extends Check {
         }
 
         if (typeAEnabled && (data.isOnGround() || groundTicks > 0) && !data.isInWater() && !data.isInLava()) {
-            double maxFlatSprint = (typeAMaxBaseSpeed * potionMultiplier) + soulSpeedBonus + ceilingBonus + wallBonus + velBonusXZ + 0.022;
+            double maxFlatSprint = (typeAMaxBaseSpeed * potionMultiplier) + soulSpeedBonus + ceilingBonus + wallBonus + velBonusXZ + combatBonus + 0.022;
 
             if (player.isSprinting() && groundTicks <= 5) {
-                maxFlatSprint += 0.09;
+                maxFlatSprint += 0.15;
             }
 
             boolean isJumping = jumpTicks >= 1 || (deltaY > 0.05 && (groundTicks <= 2 || data.isOnGround()));
@@ -204,16 +208,16 @@ public class SpeedCheck extends Check {
             double maxGroundSpeed = maxFlatSprint;
 
             if (isJumping) {
-                maxGroundSpeed = (0.612 * potionMultiplier) + soulSpeedBonus + ceilingBonus + wallBonus + velBonusXZ + 0.025;
+                maxGroundSpeed = ((player.isSprinting() ? 0.730 : 0.612) * potionMultiplier) + soulSpeedBonus + ceilingBonus + wallBonus + velBonusXZ + combatBonus + 0.035;
             } else if (isLanding) {
-                double clampedAir = Math.min(0.585 * potionMultiplier + soulSpeedBonus + ceilingBonus + wallBonus + velBonusXZ, lastDeltaXZ);
+                double clampedAir = Math.min(0.680 * potionMultiplier + soulSpeedBonus + ceilingBonus + wallBonus + velBonusXZ + combatBonus, lastDeltaXZ);
                 double groundFriction = 0.546;
-                double sprintAccel = 0.13 * potionMultiplier;
-                double landingLimit = (clampedAir * groundFriction) + sprintAccel + ceilingBonus + wallBonus + velBonusXZ + 0.025;
+                double sprintAccel = 0.15 * potionMultiplier;
+                double landingLimit = (clampedAir * groundFriction) + sprintAccel + ceilingBonus + wallBonus + velBonusXZ + combatBonus + 0.030;
                 maxGroundSpeed = Math.max(maxFlatSprint, landingLimit);
-            } else if (groundTicks <= 3 && lastDeltaXZ > 0.27) {
-                double clampedPrev = Math.min(0.50 * potionMultiplier + soulSpeedBonus + ceilingBonus + wallBonus + velBonusXZ, lastDeltaXZ);
-                double decelLimit = (clampedPrev * 0.546) + (0.09 * potionMultiplier) + ceilingBonus + wallBonus + velBonusXZ + 0.020;
+            } else if (groundTicks <= 4 && lastDeltaXZ > 0.25) {
+                double clampedPrev = Math.min(0.60 * potionMultiplier + soulSpeedBonus + ceilingBonus + wallBonus + velBonusXZ + combatBonus, lastDeltaXZ);
+                double decelLimit = (clampedPrev * 0.546) + (0.12 * potionMultiplier) + ceilingBonus + wallBonus + velBonusXZ + combatBonus + 0.025;
                 maxGroundSpeed = Math.max(maxFlatSprint, decelLimit);
             }
 

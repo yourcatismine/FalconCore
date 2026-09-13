@@ -64,6 +64,7 @@ public class PlayerData {
     private int ceilingTicks = 0;
     private int wallTicks = 0;
     private boolean nearVehicle = false;
+    private int nearbyEntityCount = 0;
     private boolean gliding = false;
     private boolean riptiding = false;
 
@@ -78,6 +79,7 @@ public class PlayerData {
     private int riptideTicks = 0;
     private int explosionTicks = 0;
     private int damageTicks = 0;
+    private int attackTicks = 0;
     private int windBoostTicks = 0;
     private int lungeTicks = 0;
     private int gamemodeChangeTicks = 0;
@@ -277,6 +279,13 @@ public class PlayerData {
         }
 
         this.nearVehicle = player.isInsideVehicle();
+        try {
+            this.nearbyEntityCount = (int) player.getNearbyEntities(2.0, 2.0, 2.0).stream()
+                    .filter(e -> e instanceof org.bukkit.entity.LivingEntity)
+                    .count();
+        } catch (Throwable t) {
+            this.nearbyEntityCount = 0;
+        }
         this.usingItem = player.isHandRaised();
         if (this.usingItem) {
             this.usingItemTicks++;
@@ -586,6 +595,7 @@ public class PlayerData {
         if (riptideTicks > 0) riptideTicks--;
         if (explosionTicks > 0) explosionTicks--;
         if (damageTicks > 0) damageTicks--;
+        if (attackTicks > 0) attackTicks--;
         if (windBoostTicks > 0) windBoostTicks--;
         if (lungeTicks > 0) lungeTicks--;
         if (gamemodeChangeTicks > 0) gamemodeChangeTicks--;
@@ -756,6 +766,9 @@ public class PlayerData {
     public int getWorldChangeTicks() { return worldChangeTicks; }
     public void setExplosionTicks(int ticks) { this.explosionTicks = ticks; }
     public void setDamageTicks(int ticks) { this.damageTicks = ticks; }
+    public int getAttackTicks() { return attackTicks; }
+    public void setAttackTicks(int ticks) { this.attackTicks = ticks; }
+    public int getNearbyEntityCount() { return nearbyEntityCount; }
     public int getGamemodeChangeTicks() { return gamemodeChangeTicks; }
     public int getFlightToggleTicks() { return flightToggleTicks; }
 

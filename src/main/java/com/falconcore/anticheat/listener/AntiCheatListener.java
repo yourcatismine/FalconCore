@@ -91,8 +91,10 @@ public class AntiCheatListener implements Listener {
                     data.setWindBoostTicks(35);
                 } else if (cause == EntityDamageEvent.DamageCause.ENTITY_ATTACK ||
                            cause == EntityDamageEvent.DamageCause.ENTITY_SWEEP_ATTACK ||
-                           cause == EntityDamageEvent.DamageCause.PROJECTILE) {
-                    data.setDamageTicks(6);
+                           cause == EntityDamageEvent.DamageCause.PROJECTILE ||
+                           cause == EntityDamageEvent.DamageCause.THORNS ||
+                           cause == EntityDamageEvent.DamageCause.FALL) {
+                    data.setDamageTicks(20);
                 }
             }
         }
@@ -327,9 +329,17 @@ public class AntiCheatListener implements Listener {
             }
         }
 
+        if (event.getEntity() instanceof Player victim) {
+            PlayerData victimData = manager.getPlayerData(victim.getUniqueId());
+            if (victimData != null) {
+                victimData.setDamageTicks(20);
+            }
+        }
+
         if (!(event.getDamager() instanceof Player player)) return;
 
         PlayerData data = manager.getOrCreatePlayerData(player);
+        data.setAttackTicks(20);
 
         Check reachCheck = manager.getCheck("reach");
         if (reachCheck instanceof ReachCheck rc && reachCheck.isEnabled()) {
