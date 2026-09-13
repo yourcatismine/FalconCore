@@ -60,6 +60,7 @@ public class PlayerData {
     private int soulSpeedLevel = 0;
     private int depthStriderLevel = 0;
     private int iceTicks = 0;
+    private int soulSandTicks = 0;
     private int ceilingTicks = 0;
     private int wallTicks = 0;
     private boolean nearVehicle = false;
@@ -77,6 +78,8 @@ public class PlayerData {
     private int riptideTicks = 0;
     private int explosionTicks = 0;
     private int damageTicks = 0;
+    private int windBoostTicks = 0;
+    private int lungeTicks = 0;
     private int gamemodeChangeTicks = 0;
     private int flightToggleTicks = 0;
 
@@ -91,7 +94,7 @@ public class PlayerData {
 
     private boolean bedrock = false;
 
-    private volatile boolean anticheatSetback = false;
+    private final java.util.concurrent.atomic.AtomicInteger anticheatSetbackPending = new java.util.concurrent.atomic.AtomicInteger(0);
 
     public PlayerData(UUID uuid, String name) {
         this.uuid = uuid;
@@ -241,7 +244,9 @@ public class PlayerData {
             this.fallTicks = 0;
             this.ascendTicks = 0;
             this.totalAirAscent = 0.0;
-            this.hadVelocityThisAir = false;
+            if (this.windBoostTicks <= 0 && this.velocityTicks <= 0) {
+                this.hadVelocityThisAir = false;
+            }
             this.lastGroundLocation = loc.clone();
             if (slimeBounceTicks <= 0) {
                 this.bouncedOnSlime = false;
@@ -411,7 +416,8 @@ public class PlayerData {
                     if (mat == Material.COBWEB) this.inWeb = true;
                     if (mat == Material.LADDER || mat == Material.VINE || mat == Material.SCAFFOLDING
                             || mat == Material.WEEPING_VINES || mat == Material.TWISTING_VINES
-                            || mat == Material.WEEPING_VINES_PLANT || mat == Material.TWISTING_VINES_PLANT) {
+                            || mat == Material.WEEPING_VINES_PLANT || mat == Material.TWISTING_VINES_PLANT
+                            || mat == Material.CAVE_VINES || mat == Material.CAVE_VINES_PLANT) {
                         this.onClimbable = true;
                     }
                     if (mat == Material.SLIME_BLOCK) {
@@ -432,6 +438,7 @@ public class PlayerData {
                     }
                     if (mat == Material.SOUL_SAND || mat == Material.SOUL_SOIL) {
                         this.onSoulSand = true;
+                        this.soulSandTicks = 15;
                     }
                 }
             }
@@ -499,12 +506,14 @@ public class PlayerData {
     private void broadcastDebug(Player player) {
         if (debugWatchers.isEmpty()) return;
 
+        double totalVl = getTotalViolationLevel();
+        double speedVl = getViolationLevel("speed");
+
         String debugBar = String.format(
-                "&b[Debug: %s] &fdY: &e%+.3f &8| &fair: &a%d &8| &fasc: &c%d &8| &ffall: &6%d &8| &fGrnd: %s/%s &8| &fPing: &e%dms",
-                player.getName(), deltaY, airTicks, ascendTicks, fallTicks,
-                player.isOnGround() ? "&aT" : "&cF",
-                mathematicallyOnGround ? "&aT" : "&cF",
-                player.getPing()
+                "&b[%s] &fdXZ: &e%.3f &8(&7%.3f&8) | &fdY: &e%+.3f &8| &fAir: &a%d &8| &fGrnd: &b%d &8| &fSpeedVL: &c%.1f &8| &fGrace: %s",
+                player.getName(), deltaXZ, lastDeltaXZ, deltaY, airTicks, groundTicks,
+                speedVl,
+                hasGracePeriod() ? "&aT" : "&cF"
         );
         net.kyori.adventure.text.Component barComp = net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer
                 .legacyAmpersand().deserialize(debugBar);
@@ -527,6 +536,20 @@ public class PlayerData {
         StringBuilder sb = new StringBuilder();
         sb.append("=== FALCON ANTICHEAT MOVEMENT DUMP ===\n");
         sb.append("Player: ").append(name).append(" (UUID: ").append(uuid).append(")\n");
+        Player p = Bukkit.getPlayer(uuid);
+        if (p != null) {
+            com.falconcore.anticheat.AntiCheatManager acm = com.falconcore.anticheat.AntiCheatManager.getInstance();
+            sb.append("GameMode: ").append(p.getGameMode()).append(", Flying: ").append(p.isFlying())
+                    .append(", AllowFlight: ").append(p.getAllowFlight())
+                    .append(", HasBypass: ").append(acm != null && acm.hasBypass(p)).append("\n");
+            if (acm != null) {
+                sb.append("AC Enabled: ").append(acm.isEnabled()).append(", Checks: ");
+                for (com.falconcore.anticheat.check.Check c : acm.getChecks()) {
+                    sb.append(c.getId()).append(":").append(c.isEnabled()).append(" ");
+                }
+                sb.append("\n");
+            }
+        }
         sb.append("Current AirTicks: ").append(airTicks).append(", GroundTicks: ").append(groundTicks)
                 .append(", AscendTicks: ").append(ascendTicks).append(", FallTicks: ").append(fallTicks).append("\n");
         sb.append("Bedrock: ").append(bedrock).append(", Grace: ").append(hasGracePeriod()).append("\n");
@@ -563,9 +586,12 @@ public class PlayerData {
         if (riptideTicks > 0) riptideTicks--;
         if (explosionTicks > 0) explosionTicks--;
         if (damageTicks > 0) damageTicks--;
+        if (windBoostTicks > 0) windBoostTicks--;
+        if (lungeTicks > 0) lungeTicks--;
         if (gamemodeChangeTicks > 0) gamemodeChangeTicks--;
         if (flightToggleTicks > 0) flightToggleTicks--;
         if (iceTicks > 0) iceTicks--;
+        if (soulSandTicks > 0) soulSandTicks--;
         if (ceilingTicks > 0) ceilingTicks--;
         if (wallTicks > 0) wallTicks--;
     }
@@ -578,11 +604,24 @@ public class PlayerData {
     public boolean hasGracePeriod() {
         return hasHardGrace() || velocityTicks > 0
                 || slimeBounceTicks > 0 || bedBounceTicks > 0 || elytraTicks > 0 || riptideTicks > 0
-                || explosionTicks > 0 || damageTicks > 0;
+                || explosionTicks > 0 || damageTicks > 0 || windBoostTicks > 0 || lungeTicks > 0;
     }
 
     public int getExplosionTicks() { return explosionTicks; }
     public int getDamageTicks() { return damageTicks; }
+    public int getWindBoostTicks() { return windBoostTicks; }
+    public void setWindBoostTicks(int ticks) {
+        this.windBoostTicks = ticks;
+        this.hadVelocityThisAir = true;
+    }
+    public int getLungeTicks() { return lungeTicks; }
+    public void setLungeTicks(int ticks) {
+        this.lungeTicks = ticks;
+        this.hadVelocityThisAir = true;
+    }
+    public void setHadVelocityThisAir(boolean hadVelocityThisAir) {
+        this.hadVelocityThisAir = hadVelocityThisAir;
+    }
 
     public void setGamemodeChangeTicks(int ticks) { this.gamemodeChangeTicks = ticks; }
     public void setFlightToggleTicks(int ticks) { this.flightToggleTicks = ticks; }
@@ -677,6 +716,7 @@ public class PlayerData {
     public int getDepthStriderLevel() { return depthStriderLevel; }
     public int getIceTicks() { return iceTicks; }
     public boolean hasIceFriction() { return onIce || iceTicks > 0; }
+    public boolean hasSoulSandMomentum() { return onSoulSand || soulSandTicks > 0; }
 
     public double getMovementAngleDeviation(Player player) {
         if (deltaXZ < 0.05) return 0.0;
@@ -709,10 +749,15 @@ public class PlayerData {
     public boolean hadVelocityThisAir() { return hadVelocityThisAir; }
 
     public void setTeleportTicks(int ticks) { this.teleportTicks = ticks; }
+    public int getTeleportTicks() { return teleportTicks; }
     public void setRespawnTicks(int ticks) { this.respawnTicks = ticks; }
+    public int getRespawnTicks() { return respawnTicks; }
     public void setWorldChangeTicks(int ticks) { this.worldChangeTicks = ticks; }
+    public int getWorldChangeTicks() { return worldChangeTicks; }
     public void setExplosionTicks(int ticks) { this.explosionTicks = ticks; }
     public void setDamageTicks(int ticks) { this.damageTicks = ticks; }
+    public int getGamemodeChangeTicks() { return gamemodeChangeTicks; }
+    public int getFlightToggleTicks() { return flightToggleTicks; }
 
     public boolean isAlertsEnabled() { return alertsEnabled; }
     public void setAlertsEnabled(boolean alertsEnabled) { this.alertsEnabled = alertsEnabled; }
@@ -720,8 +765,10 @@ public class PlayerData {
     public boolean isBedrock() { return bedrock; }
     public void setBedrock(boolean bedrock) { this.bedrock = bedrock; }
 
-    public boolean isAnticheatSetback() { return anticheatSetback; }
-    public void setAnticheatSetback(boolean anticheatSetback) { this.anticheatSetback = anticheatSetback; }
+    public boolean isAnticheatSetback() { return anticheatSetbackPending.get() > 0; }
+    public void markSetbackPending() { anticheatSetbackPending.incrementAndGet(); }
+    public boolean consumeSetbackPending() { return anticheatSetbackPending.getAndUpdate(v -> Math.max(0, v - 1)) > 0; }
+    public void setAnticheatSetback(boolean val) { if (val) markSetbackPending(); else anticheatSetbackPending.set(0); }
 
     public Map<String, Double> getViolations() { return violations; }
 

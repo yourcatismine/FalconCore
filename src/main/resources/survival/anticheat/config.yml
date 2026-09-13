@@ -20,6 +20,13 @@ alerts:
 # General settings
 debug: false
 ignore-bedrock: true
+
+# Bypass settings (default false so staff with wildcard * permissions can test cheats)
+bypass:
+  enabled: false
+  permission: "falcon.anticheat.bypass"
+  ops-bypass: false
+ops-bypass: false
 bypass-permission: "falcon.anticheat.bypass"
 
 # Violation Level (VL) decay settings

@@ -3,6 +3,7 @@ package com.falconcore.anticheat.command;
 import com.falconcore.anticheat.AntiCheatManager;
 import com.falconcore.anticheat.check.Check;
 import com.falconcore.anticheat.data.PlayerData;
+import com.falconcore.anticheat.gui.AntiCheatMainGUI;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
@@ -30,7 +31,7 @@ public class AntiCheatCommand implements CommandExecutor, TabCompleter {
         FileConfiguration msg = manager.getMessages();
         String prefix = msg.getString("commands.prefix", "&8[&b&lFalconAC&8] ");
 
-        if (!sender.hasPermission("falcon.anticheat.admin") && !sender.hasPermission("falcon.anticheat.alerts")) {
+        if (!sender.hasPermission("falcon.anticheat.admin")) {
             sender.sendMessage(color(prefix + msg.getString("commands.no-permission", "&cYou do not have permission.")));
             return true;
         }
@@ -43,27 +44,7 @@ public class AntiCheatCommand implements CommandExecutor, TabCompleter {
         String sub = args[0].toLowerCase();
 
         switch (sub) {
-            case "alerts", "toggle" -> {
-                if (!(sender instanceof Player player)) {
-                    sender.sendMessage(color(prefix + msg.getString("commands.only-players", "&cOnly players can use this.")));
-                    return true;
-                }
-                PlayerData data = manager.getOrCreatePlayerData(player);
-                boolean newState = !data.isAlertsEnabled();
-                data.setAlertsEnabled(newState);
-                if (newState) {
-                    player.sendMessage(color(prefix + msg.getString("commands.alerts-enabled", "&aAntiCheat alerts enabled.")));
-                } else {
-                    player.sendMessage(color(prefix + msg.getString("commands.alerts-disabled", "&cAntiCheat alerts disabled.")));
-                }
-                return true;
-            }
-
             case "debug" -> {
-                if (!sender.hasPermission("falcon.anticheat.admin")) {
-                    sender.sendMessage(color(prefix + msg.getString("commands.no-permission", "&cYou do not have permission.")));
-                    return true;
-                }
                 if (!(sender instanceof Player staff)) {
                     sender.sendMessage(color(prefix + "&cOnly players can use live actionbar debugging."));
                     return true;
@@ -85,10 +66,6 @@ public class AntiCheatCommand implements CommandExecutor, TabCompleter {
             }
 
             case "dump" -> {
-                if (!sender.hasPermission("falcon.anticheat.admin")) {
-                    sender.sendMessage(color(prefix + msg.getString("commands.no-permission", "&cYou do not have permission.")));
-                    return true;
-                }
                 Player target = (args.length > 1) ? Bukkit.getPlayer(args[1]) : ((sender instanceof Player p) ? p : null);
                 if (target == null) {
                     sender.sendMessage(color(prefix + "&cUsage: /" + label + " dump <player> [file]"));
@@ -100,7 +77,7 @@ public class AntiCheatCommand implements CommandExecutor, TabCompleter {
                 boolean saveToFile = args.length > 2 && args[2].equalsIgnoreCase("file");
                 if (saveToFile || !(sender instanceof Player)) {
                     try {
-                        File dumpsDir = new File(manager.getPlugin().getDataFolder(), "survival/anticheat/dumps");
+                        File dumpsDir = new File(manager.getPlugin().getDataFolder(), "survival/anticheat");
                         dumpsDir.mkdirs();
                         String timeStr = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss").format(new Date());
                         File dumpFile = new File(dumpsDir, target.getName() + "_" + timeStr + ".txt");
@@ -125,16 +102,6 @@ public class AntiCheatCommand implements CommandExecutor, TabCompleter {
                     sender.sendMessage(color("&7Run &e/" + label + " dump " + target.getName() + " file &7to write full 50-tick log to disk."));
                     sender.sendMessage(color("&8&m--------------------------------------------------"));
                 }
-                return true;
-            }
-
-            case "reload" -> {
-                if (!sender.hasPermission("falcon.anticheat.admin")) {
-                    sender.sendMessage(color(prefix + msg.getString("commands.no-permission", "&cYou do not have permission.")));
-                    return true;
-                }
-                manager.reload();
-                sender.sendMessage(color(prefix + msg.getString("commands.reloaded", "&aConfigurations and messages reloaded.")));
                 return true;
             }
 
@@ -173,37 +140,12 @@ public class AntiCheatCommand implements CommandExecutor, TabCompleter {
                 return true;
             }
 
-            case "reset" -> {
-                if (!sender.hasPermission("falcon.anticheat.admin")) {
-                    sender.sendMessage(color(prefix + msg.getString("commands.no-permission", "&cYou do not have permission.")));
+            case "gui" -> {
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage(color(prefix + "&cThis command can only be used by players."));
                     return true;
                 }
-                if (args.length < 2) {
-                    sender.sendMessage(color(prefix + "&cUsage: /" + label + " reset <player>"));
-                    return true;
-                }
-                Player target = Bukkit.getPlayer(args[1]);
-                if (target == null) {
-                    sender.sendMessage(color(prefix + msg.getString("commands.player-not-found", "&cPlayer not found.").replace("%player%", args[1])));
-                    return true;
-                }
-                PlayerData targetData = manager.getPlayerData(target.getUniqueId());
-                if (targetData != null) {
-                    targetData.resetViolations();
-                }
-                sender.sendMessage(color(prefix + msg.getString("commands.reset-success", "&aReset violations.").replace("%player%", target.getName())));
-                return true;
-            }
-
-            case "checks" -> {
-                sender.sendMessage(color("&8&m--------------------------------------------------"));
-                sender.sendMessage(color(" &b&lFalcon AntiCheat &8— &fRegistered Checks"));
-                sender.sendMessage(color("&8&m--------------------------------------------------"));
-                for (Check check : manager.getChecks()) {
-                    String status = check.isEnabled() ? "&a[ENABLED]" : "&c[DISABLED]";
-                    sender.sendMessage(color(" &8• &b" + check.getName() + " &7(" + check.getCategory().getDisplayName() + ") " + status + " &8— &7" + check.getDescription()));
-                }
-                sender.sendMessage(color("&8&m--------------------------------------------------"));
+                AntiCheatMainGUI.open(player, manager);
                 return true;
             }
 
@@ -218,13 +160,10 @@ public class AntiCheatCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(color("&8&m--------------------------------------------------"));
         sender.sendMessage(color(" &b&lFalcon AntiCheat &8— &fCommands"));
         sender.sendMessage(color("&8&m--------------------------------------------------"));
-        sender.sendMessage(color(" &8• &b/" + label + " alerts &8— &7Toggle staff violation alerts"));
         sender.sendMessage(color(" &8• &b/" + label + " debug [player] &8— &7Toggle live real-time actionbar debugging"));
         sender.sendMessage(color(" &8• &b/" + label + " dump <player> [file] &8— &7View / dump recent 50 movement ticks"));
         sender.sendMessage(color(" &8• &b/" + label + " info <player> &8— &7View player physics and VL info"));
-        sender.sendMessage(color(" &8• &b/" + label + " reset <player> &8— &7Reset player violations"));
-        sender.sendMessage(color(" &8• &b/" + label + " checks &8— &7List all registered checks"));
-        sender.sendMessage(color(" &8• &b/" + label + " reload &8— &7Reload AntiCheat configurations"));
+        sender.sendMessage(color(" &8• &b/" + label + " gui &8— &7Open the AntiCheat GUI"));
         sender.sendMessage(color("&8&m--------------------------------------------------"));
     }
 
@@ -236,12 +175,12 @@ public class AntiCheatCommand implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         List<String> completions = new ArrayList<>();
         if (args.length == 1) {
-            for (String sub : Arrays.asList("alerts", "debug", "dump", "info", "reset", "checks", "reload")) {
+            for (String sub : Arrays.asList("debug", "dump", "info", "gui")) {
                 if (sub.startsWith(args[0].toLowerCase())) {
                     completions.add(sub);
                 }
             }
-        } else if (args.length == 2 && (args[0].equalsIgnoreCase("info") || args[0].equalsIgnoreCase("reset")
+        } else if (args.length == 2 && (args[0].equalsIgnoreCase("info")
                 || args[0].equalsIgnoreCase("debug") || args[0].equalsIgnoreCase("dump"))) {
             for (Player player : Bukkit.getOnlinePlayers()) {
                 if (player.getName().toLowerCase().startsWith(args[1].toLowerCase())) {

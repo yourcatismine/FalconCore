@@ -1,0 +1,21 @@
+# ─────────────────────────────────────────────────────────────
+# FalconCore - AntiCheat: NoFall Detection Configuration
+# ─────────────────────────────────────────────────────────────
+
+enabled: true
+
+violations:
+  alert-threshold: 3.0
+  punishment-threshold: 20.0
+
+setback:
+  enabled: true
+  min-vl: 1.0
+
+subchecks:
+  type-a:
+    enabled: true
+    vl-increment: 1.5
+  type-b:
+    enabled: true
+    vl-increment: 2.0

@@ -3,13 +3,21 @@ package com.falconcore.anticheat.listener;
 import com.falconcore.anticheat.AntiCheatManager;
 import com.falconcore.anticheat.check.Check;
 import com.falconcore.anticheat.data.PlayerData;
+import com.falconcore.anticheat.check.combat.CriticalsCheck;
+import com.falconcore.anticheat.check.combat.ReachCheck;
+import com.falconcore.anticheat.check.interaction.FastUseCheck;
+import com.falconcore.anticheat.check.world.AirPlaceCheck;
+import com.falconcore.anticheat.check.world.ScaffoldCheck;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
+import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.player.*;
 
 public class AntiCheatListener implements Listener {
@@ -37,9 +45,14 @@ public class AntiCheatListener implements Listener {
 
         data.updateMove(from, to);
 
+        if (data.isAnticheatSetback()) return;
+
         for (Check check : manager.getChecks()) {
             if (check.isEnabled()) {
                 check.process(player, data, from, to);
+                if (data.isAnticheatSetback()) {
+                    break;
+                }
             }
         }
     }
@@ -50,7 +63,18 @@ public class AntiCheatListener implements Listener {
         Player player = event.getPlayer();
         PlayerData data = manager.getPlayerData(player.getUniqueId());
         if (data != null) {
-            data.setVelocityTicks(manager.getVelocityGraceTicks(), event.getVelocity());
+            org.bukkit.util.Vector vel = event.getVelocity();
+            int ticks = manager.getVelocityGraceTicks();
+            double speedXZ = (vel != null) ? Math.hypot(vel.getX(), vel.getZ()) : 0.0;
+            if (vel != null && vel.getY() > 0.35) {
+                ticks = Math.max(ticks, (int) (vel.getY() * 35) + 12);
+                data.setWindBoostTicks(ticks);
+            }
+            if (speedXZ > 0.35) {
+                ticks = Math.max(ticks, (int) (speedXZ * 30) + 12);
+                data.setLungeTicks(ticks);
+            }
+            data.setVelocityTicks(ticks, vel);
         }
     }
 
@@ -64,6 +88,7 @@ public class AntiCheatListener implements Listener {
                 if (cause == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION ||
                     cause == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION) {
                     data.setExplosionTicks(manager.getVelocityGraceTicks());
+                    data.setWindBoostTicks(35);
                 } else if (cause == EntityDamageEvent.DamageCause.ENTITY_ATTACK ||
                            cause == EntityDamageEvent.DamageCause.ENTITY_SWEEP_ATTACK ||
                            cause == EntityDamageEvent.DamageCause.PROJECTILE) {
@@ -74,15 +99,48 @@ public class AntiCheatListener implements Listener {
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onProjectileLaunch(org.bukkit.event.entity.ProjectileLaunchEvent event) {
+        if (!manager.isEnabled()) return;
+        org.bukkit.entity.Projectile proj = event.getEntity();
+        String projName = proj.getType().name();
+        if (projName.contains("WIND_CHARGE") || projName.contains("BREEZE")) {
+            if (proj.getShooter() instanceof Player shooter) {
+                PlayerData data = manager.getPlayerData(shooter.getUniqueId());
+                if (data != null) {
+                    data.setWindBoostTicks(50);
+                }
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onProjectileHit(org.bukkit.event.entity.ProjectileHitEvent event) {
+        if (!manager.isEnabled()) return;
+        org.bukkit.entity.Projectile proj = event.getEntity();
+        String projName = proj.getType().name();
+        if (projName.contains("WIND_CHARGE") || projName.contains("BREEZE")) {
+            Location hitLoc = proj.getLocation();
+            if (hitLoc.getWorld() != null) {
+                for (Player nearby : hitLoc.getWorld().getNearbyPlayers(hitLoc, 6.0)) {
+                    PlayerData data = manager.getPlayerData(nearby.getUniqueId());
+                    if (data != null) {
+                        data.setWindBoostTicks(50);
+                    }
+                }
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
     public void onTeleport(PlayerTeleportEvent event) {
         if (!manager.isEnabled()) return;
         Player player = event.getPlayer();
         PlayerData data = manager.getPlayerData(player.getUniqueId());
         if (data != null) {
-            if (data.isAnticheatSetback()) {
-                data.setAnticheatSetback(false);
+            if (data.consumeSetbackPending()) {
                 return;
             }
+            if (event.isCancelled()) return;
             data.setTeleportTicks(manager.getTeleportGraceTicks());
             data.setLastGroundLocation(event.getTo());
         }
@@ -169,7 +227,7 @@ public class AntiCheatListener implements Listener {
 
             if (player.getGameMode() == org.bukkit.GameMode.CREATIVE || player.getGameMode() == org.bukkit.GameMode.SPECTATOR) continue;
             if (player.getAllowFlight() || player.isFlying()) continue;
-            if (player.hasPermission(manager.getBypassPermission())) continue;
+            if (manager.hasBypass(player)) continue;
 
             PlayerData data = manager.getOrCreatePlayerData(player);
             if (manager.isIgnoreBedrock() && data.isBedrock()) continue;
@@ -239,14 +297,162 @@ public class AntiCheatListener implements Listener {
                     data.setAnticheatSetback(true);
                     data.resetMovementState(setbackLoc);
                     try {
-                        player.teleport(setbackLoc, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN);
-                        vehicle.teleport(setbackLoc);
+                        player.teleportAsync(setbackLoc, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN);
+                        vehicle.teleportAsync(setbackLoc);
                     } catch (Throwable t) {
-                        player.teleport(setbackLoc);
+                        try {
+                            player.teleportAsync(setbackLoc);
+                            vehicle.teleportAsync(setbackLoc);
+                        } catch (Throwable t2) {
+                            player.teleport(setbackLoc);
+                        }
                     }
                 }
                 break;
             }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
+        if (!manager.isEnabled()) return;
+
+        String damagerName = event.getDamager().getType().name();
+        if (damagerName.contains("WIND_CHARGE") || damagerName.contains("BREEZE")) {
+            if (event.getEntity() instanceof Player victim) {
+                PlayerData victimData = manager.getPlayerData(victim.getUniqueId());
+                if (victimData != null) {
+                    victimData.setWindBoostTicks(50);
+                }
+            }
+        }
+
+        if (!(event.getDamager() instanceof Player player)) return;
+
+        PlayerData data = manager.getOrCreatePlayerData(player);
+
+        Check reachCheck = manager.getCheck("reach");
+        if (reachCheck instanceof ReachCheck rc && reachCheck.isEnabled()) {
+            rc.handleAttack(player, data, event.getEntity(), event);
+        }
+
+        Check critCheck = manager.getCheck("criticals");
+        if (critCheck instanceof CriticalsCheck cc && critCheck.isEnabled()) {
+            cc.handleAttack(player, data, event.getEntity(), event);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onBlockPlace(BlockPlaceEvent event) {
+        if (!manager.isEnabled()) return;
+        Player player = event.getPlayer();
+        PlayerData data = manager.getOrCreatePlayerData(player);
+
+        Check reachCheck = manager.getCheck("reach");
+        if (reachCheck instanceof ReachCheck rc && reachCheck.isEnabled()) {
+            rc.handleBlockPlace(player, data, event.getBlockPlaced(), event.getBlockAgainst(), event);
+        }
+
+        if (event.isCancelled()) return;
+
+        Check airPlaceCheck = manager.getCheck("airplace");
+        if (airPlaceCheck instanceof AirPlaceCheck apc && airPlaceCheck.isEnabled()) {
+            apc.handleBlockPlace(player, data, event);
+        }
+
+        if (event.isCancelled()) return;
+
+        Check scaffoldCheck = manager.getCheck("scaffold");
+        if (scaffoldCheck instanceof ScaffoldCheck sc && scaffoldCheck.isEnabled()) {
+            sc.handleBlockPlace(player, data, event);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onBlockDamage(org.bukkit.event.block.BlockDamageEvent event) {
+        if (!manager.isEnabled()) return;
+        Player player = event.getPlayer();
+        PlayerData data = manager.getOrCreatePlayerData(player);
+
+        Check reachCheck = manager.getCheck("reach");
+        if (reachCheck instanceof ReachCheck rc && reachCheck.isEnabled()) {
+            rc.handleBlockDamage(player, data, event.getBlock(), event);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onBlockBreak(org.bukkit.event.block.BlockBreakEvent event) {
+        if (!manager.isEnabled()) return;
+        Player player = event.getPlayer();
+        PlayerData data = manager.getOrCreatePlayerData(player);
+
+        Check reachCheck = manager.getCheck("reach");
+        if (reachCheck instanceof ReachCheck rc && reachCheck.isEnabled()) {
+            rc.handleBlockBreak(player, data, event.getBlock(), event);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onPlayerInteract(PlayerInteractEvent event) {
+        if (!manager.isEnabled()) return;
+        Player player = event.getPlayer();
+        PlayerData data = manager.getOrCreatePlayerData(player);
+
+        if (event.hasBlock() && event.getClickedBlock() != null) {
+            Check reachCheck = manager.getCheck("reach");
+            if (reachCheck instanceof ReachCheck rc && reachCheck.isEnabled()) {
+                rc.handleInteractBlock(player, data, event.getClickedBlock(), event);
+            }
+        }
+
+        if (event.isCancelled()) return;
+
+        Action action = event.getAction();
+        if (action == Action.RIGHT_CLICK_AIR || action == Action.RIGHT_CLICK_BLOCK) {
+            Check fastUseCheck = manager.getCheck("fastuse");
+            if (fastUseCheck instanceof FastUseCheck fuc && fastUseCheck.isEnabled()) {
+                fuc.handleInteract(player);
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onPlayerItemConsume(PlayerItemConsumeEvent event) {
+        if (!manager.isEnabled()) return;
+        Player player = event.getPlayer();
+        PlayerData data = manager.getOrCreatePlayerData(player);
+
+        Check fastUseCheck = manager.getCheck("fastuse");
+        if (fastUseCheck instanceof FastUseCheck fuc && fastUseCheck.isEnabled()) {
+            fuc.handleConsume(player, data, event);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onEntityShootBow(EntityShootBowEvent event) {
+        if (!manager.isEnabled()) return;
+        if (!(event.getEntity() instanceof Player player)) return;
+        PlayerData data = manager.getOrCreatePlayerData(player);
+
+        Check fastUseCheck = manager.getCheck("fastuse");
+        if (fastUseCheck instanceof FastUseCheck fuc && fastUseCheck.isEnabled()) {
+            fuc.handleShootBow(player, data, event);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onItemHeldChange(PlayerItemHeldEvent event) {
+        Check fastUseCheck = manager.getCheck("fastuse");
+        if (fastUseCheck instanceof FastUseCheck fuc) {
+            fuc.reset(event.getPlayer().getUniqueId());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onSwapHand(PlayerSwapHandItemsEvent event) {
+        Check fastUseCheck = manager.getCheck("fastuse");
+        if (fastUseCheck instanceof FastUseCheck fuc) {
+            fuc.reset(event.getPlayer().getUniqueId());
         }
     }
 
@@ -258,5 +464,9 @@ public class AntiCheatListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
         manager.removePlayerData(event.getPlayer().getUniqueId());
+        Check fastUseCheck = manager.getCheck("fastuse");
+        if (fastUseCheck instanceof FastUseCheck fuc) {
+            fuc.reset(event.getPlayer().getUniqueId());
+        }
     }
 }

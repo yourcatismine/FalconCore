@@ -2,8 +2,12 @@ package com.falconcore.anticheat;
 
 import com.falconcore.anticheat.alert.AlertManager;
 import com.falconcore.anticheat.check.Check;
-import com.falconcore.anticheat.check.movement.FlyCheck;
-import com.falconcore.anticheat.check.movement.SpeedCheck;
+import com.falconcore.anticheat.check.combat.CriticalsCheck;
+import com.falconcore.anticheat.check.combat.ReachCheck;
+import com.falconcore.anticheat.check.interaction.FastUseCheck;
+import com.falconcore.anticheat.check.movement.*;
+import com.falconcore.anticheat.check.world.AirPlaceCheck;
+import com.falconcore.anticheat.check.world.ScaffoldCheck;
 import com.falconcore.anticheat.command.AntiCheatCommand;
 import com.falconcore.anticheat.data.PlayerData;
 import com.falconcore.anticheat.listener.AntiCheatListener;
@@ -36,12 +40,13 @@ public class AntiCheatManager {
     private FileConfiguration messages;
     private final Map<String, FileConfiguration> checkMessagesMap = new ConcurrentHashMap<>();
 
-    // Config options
     private boolean enabled = true;
     private boolean alertsEnabled = true;
     private long alertCooldownMs = 600L;
     private boolean debug = false;
     private boolean ignoreBedrock = true;
+    private boolean opsBypass = false;
+    private boolean bypassEnabled = false;
     private String bypassPermission = "falcon.anticheat.bypass";
     private String alertPermission = "falcon.anticheat.alerts";
 
@@ -61,25 +66,27 @@ public class AntiCheatManager {
         this.plugin = plugin;
         this.alertManager = new AlertManager(this);
 
-        // Load configs
         loadConfigs();
 
-        // Register default checks
         registerCheck(new FlyCheck(this));
         registerCheck(new SpeedCheck(this));
+        registerCheck(new NoSlowCheck(this));
+        registerCheck(new JesusCheck(this));
+        registerCheck(new NoFallCheck(this));
+        registerCheck(new FastClimbCheck(this));
+        registerCheck(new VelocityCheck(this));
+        registerCheck(new ReachCheck(this));
+        registerCheck(new CriticalsCheck(this));
+        registerCheck(new AirPlaceCheck(this));
+        registerCheck(new ScaffoldCheck(this));
+        registerCheck(new FastUseCheck(this));
 
-        // Register event listener
         this.listener = new AntiCheatListener(this);
         this.plugin.getServer().getPluginManager().registerEvents(this.listener, this.plugin);
+        this.plugin.getServer().getPluginManager().registerEvents(new com.falconcore.anticheat.gui.AntiCheatGUIListener(this), this.plugin);
 
-        // Register command
         this.command = new AntiCheatCommand(this);
-        if (plugin.getCommand("anticheat") != null) {
-            plugin.getCommand("anticheat").setExecutor(this.command);
-            plugin.getCommand("anticheat").setTabCompleter(this.command);
-        }
 
-        // Start VL Decay Task
         startDecayTask();
 
         plugin.getLogger().info("[AntiCheat] Initialized with " + checks.size() + " check(s) enabled: " + enabled + ", alerts: " + alertsEnabled);
@@ -90,24 +97,23 @@ public class AntiCheatManager {
     }
 
     public void loadConfigs() {
-        // Load main anticheat config
         this.configFile = loadConfigFile("survival/anticheat/config.yml", "anticheat/config.yml");
         this.config = YamlConfiguration.loadConfiguration(configFile);
 
-        // Load messages config
         this.messagesFile = loadConfigFile("survival/messages/anticheat/messages.yml", "messages/anticheat/messages.yml");
         if (!messagesFile.exists()) {
             this.messagesFile = loadConfigFile("survival/messages/anticheat/fly/messages.yml", "messages/anticheat/fly/messages.yml");
         }
         this.messages = YamlConfiguration.loadConfiguration(messagesFile);
 
-        // Read settings
         this.enabled = config.getBoolean("enabled", true);
         this.alertsEnabled = config.getBoolean("alerts.enabled", config.getBoolean("alerts", true));
         this.alertCooldownMs = config.getLong("alerts.cooldown-ms", 600L);
         this.debug = config.getBoolean("debug", false);
         this.ignoreBedrock = config.getBoolean("ignore-bedrock", true);
-        this.bypassPermission = config.getString("bypass-permission", "falcon.anticheat.bypass");
+        this.opsBypass = config.getBoolean("ops-bypass", false);
+        this.bypassEnabled = config.getBoolean("bypass.enabled", false);
+        this.bypassPermission = config.getString("bypass-permission", config.getString("bypass.permission", "falcon.anticheat.bypass"));
         this.alertPermission = config.getString("alerts.permission", config.getString("alert-permission", "falcon.anticheat.alerts"));
 
         this.decayAmount = config.getDouble("violations.decay-amount", 1.0);
@@ -123,7 +129,6 @@ public class AntiCheatManager {
 
         checkMessagesMap.clear();
 
-        // Reload all check configs and messages individually
         for (Check check : checks) {
             String checkConfigPath = "survival/anticheat/" + check.getId() + "/config.yml";
             String fallbackConfigPath = "anticheat/" + check.getId() + "/config.yml";
@@ -150,7 +155,6 @@ public class AntiCheatManager {
             return alt;
         }
 
-        // Neither exists, extract from JAR
         try {
             if (plugin.getResource(primaryPath) != null) {
                 file.getParentFile().mkdirs();
@@ -232,8 +236,8 @@ public class AntiCheatManager {
         });
     }
 
-    // Getters
     public Falcon getPlugin() { return plugin; }
+    public AntiCheatCommand getCommand() { return command; }
     public AlertManager getAlertManager() { return alertManager; }
     public List<Check> getChecks() { return checks; }
     public Check getCheck(String id) {
@@ -257,6 +261,22 @@ public class AntiCheatManager {
     public boolean isAlertsEnabled() { return alertsEnabled; }
     public long getAlertCooldownMs() { return alertCooldownMs; }
     public boolean isDebug() { return debug; }
+    public boolean hasBypass(Player player) {
+        if (player == null) return true;
+        if (!bypassEnabled) {
+            return false;
+        }
+        if (player.isOp() && !opsBypass) {
+            return false;
+        }
+        if (bypassPermission == null || bypassPermission.isEmpty() || bypassPermission.equalsIgnoreCase("none")) {
+            return false;
+        }
+        return player.hasPermission(bypassPermission);
+    }
+
+    public boolean isBypassEnabled() { return bypassEnabled; }
+    public boolean isOpsBypass() { return opsBypass; }
     public boolean isIgnoreBedrock() { return ignoreBedrock; }
     public String getBypassPermission() { return bypassPermission; }
     public String getAlertPermission() { return alertPermission; }

@@ -48,14 +48,11 @@ public class SpeedCheck extends Check {
         if (!enabled) return;
 
         if (player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR) return;
-        if (player.getAllowFlight() || player.isFlying()) return;
+        if (player.isFlying()) return;
 
-        if (player.hasPermission(manager.getBypassPermission())) return;
+        if (manager.hasBypass(player)) return;
 
         if (manager.isIgnoreBedrock() && data.isBedrock()) return;
-
-        if (data.hasHardGrace()) return;
-        if (data.getExplosionTicks() > 0 || data.getElytraTicks() > 0) return;
 
         double deltaXZ = data.getDeltaXZ();
         double lastDeltaXZ = data.getLastDeltaXZ();
@@ -63,6 +60,11 @@ public class SpeedCheck extends Check {
         int airTicks = data.getAirTicks();
         int groundTicks = data.getGroundTicks();
         int jumpTicks = data.getJumpTicks();
+
+
+
+        if (data.hasHardGrace()) return;
+        if (data.getExplosionTicks() > 0 || data.getElytraTicks() > 0) return;
 
         boolean inWaterOrRain = player.isInWaterOrRain() || (player.getWorld().hasStorm() && player.getLocation().getY() >= player.getWorld().getHighestBlockYAt(player.getLocation()) - 1);
         boolean isLegitRiptide = (data.isRiptiding() && inWaterOrRain) || data.getRiptideTicks() > 0;
@@ -73,6 +75,12 @@ public class SpeedCheck extends Check {
         }
         if (isLegitRiptide) {
             velBonusXZ += 2.5;
+        }
+        if (data.getLungeTicks() > 0) {
+            velBonusXZ += Math.min(0.65, data.getLungeTicks() * 0.035);
+        }
+        if (data.getWindBoostTicks() > 0) {
+            velBonusXZ += Math.min(0.50, data.getWindBoostTicks() * 0.025);
         }
 
         int speedBoostLevel = data.getPotionAmplifier(player, PotionEffectType.SPEED);
@@ -105,6 +113,10 @@ public class SpeedCheck extends Check {
             int depthStrider = data.getDepthStriderLevel();
             int dolphinsGrace = data.getPotionAmplifier(player, PotionEffectType.DOLPHINS_GRACE);
             double baseWater = (typeEMaxWaterSpeed * (1.0 + (depthStrider * 0.35)) * (1.0 + (dolphinsGrace * 1.0)) * potionMultiplier) + velBonusXZ + 0.06;
+
+            if (deltaY >= 0.10 || (player.isSprinting() && deltaY > 0.0) || data.getLastDeltaY() >= 0.15) {
+                baseWater += (typeASprintJumpBuffer * potionMultiplier) + 0.16;
+            }
 
             double frictionDecelLimit = 0.0;
             if (lastDeltaXZ > 0.20) {
@@ -142,69 +154,75 @@ public class SpeedCheck extends Check {
             return;
         }
 
-        if (typeBEnabled && airTicks >= 2 && !data.isBouncedOnSlime() && !data.isBouncedOnBed() && !isLegitRiptide && data.getRiptideTicks() <= 0) {
-            if (lastDeltaXZ > 0.12) {
-                double ceilingAirBonus = data.isUnderLowCeiling() ? 0.18 : 0.0;
-                double wallAirBonus = data.isNearWall() ? 0.08 : 0.0;
-                double highSpeedTolerance = lastDeltaXZ > 0.40 ? (lastDeltaXZ * 0.04) : 0.0;
-                double expectedMaxAirSpeed = (lastDeltaXZ * typeBAirFriction) + typeBMaxStrafeAccel + (speedBoostLevel * 0.015) + ceilingAirBonus + wallAirBonus + velBonusXZ + highSpeedTolerance;
-                double diff = deltaXZ - expectedMaxAirSpeed;
+        double soulSpeedBonus = 0.0;
+        if (data.hasSoulSandMomentum() && data.getSoulSpeedLevel() > 0) {
+            soulSpeedBonus = 0.10 + (data.getSoulSpeedLevel() * 0.05);
+        }
 
-                if (diff > 0.055) {
-                    fail(player, data, "Type B (Bhop)", typeBVlIncrement,
-                            String.format("Airborne acceleration exceeded (dXZ=%.4f > exp=%.4f, diff=%.4f, airTicks=%d)",
-                                    deltaXZ, expectedMaxAirSpeed, diff, airTicks));
-                    return;
+        double ceilingBonus = data.isUnderLowCeiling() ? 0.12 : 0.0;
+        double wallBonus = data.isNearWall() ? 0.03 : 0.0;
+
+        if (typeBEnabled && (airTicks >= 1 || !data.isOnGround()) && !data.isBouncedOnSlime() && !data.isBouncedOnBed() && !isLegitRiptide && data.getRiptideTicks() <= 0) {
+            boolean isMidAirFlight = airTicks >= 3 && Math.abs(deltaY) < 0.05 && Math.abs(data.getLastDeltaY()) < 0.05 && !data.isNearSolidBelow() && !data.isOnGround();
+            if (!isMidAirFlight) {
+                double ceilingAirBonus = data.isUnderLowCeiling() ? 0.08 : 0.0;
+                double wallAirBonus = data.isNearWall() ? 0.03 : 0.0;
+
+                double maxAirLaunch = (0.612 * potionMultiplier) + soulSpeedBonus + ceilingAirBonus + wallAirBonus + velBonusXZ + 0.025;
+
+                if (airTicks == 1) {
+                    if (deltaXZ > maxAirLaunch) {
+                        fail(player, data, "Type B (Air Launch)", typeBVlIncrement,
+                                String.format("Air launch speed exceeded (dXZ=%.4f > max=%.4f)", deltaXZ, maxAirLaunch));
+                        return;
+                    }
+                } else if (airTicks >= 2 && lastDeltaXZ > 0.05) {
+                    double clampedPrev = Math.min(maxAirLaunch, lastDeltaXZ);
+                    double strafeAccel = (player.isSprinting() ? 0.026 : 0.020) * potionMultiplier;
+                    double expectedMaxAirSpeed = (clampedPrev * typeBAirFriction) + strafeAccel + (speedBoostLevel * 0.010) + ceilingAirBonus + wallAirBonus + velBonusXZ + 0.015;
+
+                    if (deltaXZ > expectedMaxAirSpeed) {
+                        fail(player, data, "Type B (Bhop)", typeBVlIncrement,
+                                String.format("Airborne acceleration exceeded (dXZ=%.4f > exp=%.4f, diff=%.4f, airTicks=%d)",
+                                        deltaXZ, expectedMaxAirSpeed, deltaXZ - expectedMaxAirSpeed, airTicks));
+                        return;
+                    }
                 }
             }
         }
 
         if (typeAEnabled && (data.isOnGround() || groundTicks > 0) && !data.isInWater() && !data.isInLava()) {
-            double soulSpeedBonus = 0.0;
-            if (data.isOnSoulSand() && data.getSoulSpeedLevel() > 0) {
-                soulSpeedBonus = 0.10 + (data.getSoulSpeedLevel() * 0.06);
+            double maxFlatSprint = (typeAMaxBaseSpeed * potionMultiplier) + soulSpeedBonus + ceilingBonus + wallBonus + velBonusXZ + 0.022;
+
+            if (player.isSprinting() && groundTicks <= 5) {
+                maxFlatSprint += 0.09;
             }
 
-            double ceilingBonus = 0.0;
-            if (data.isUnderLowCeiling()) {
-                ceilingBonus = 0.35;
-            }
+            boolean isJumping = jumpTicks >= 1 || (deltaY > 0.05 && (groundTicks <= 2 || data.isOnGround()));
+            boolean isLanding = groundTicks <= 1 && lastDeltaXZ > 0.25;
 
-            double wallBonus = 0.0;
-            if (data.isNearWall()) {
-                wallBonus = 0.08;
-            }
+            double maxGroundSpeed = maxFlatSprint;
 
-            double jumpBuffer = 0.0;
-            if (player.isSprinting() || jumpTicks >= 1 || deltaY > 0.05 || groundTicks <= 3 || data.isUnderLowCeiling() || data.isNearWall() || lastDeltaXZ > 0.30) {
-                jumpBuffer = typeASprintJumpBuffer;
-            }
-
-            double frictionDecelLimit = 0.0;
-            if (lastDeltaXZ > 0.20) {
+            if (isJumping) {
+                maxGroundSpeed = (0.612 * potionMultiplier) + soulSpeedBonus + ceilingBonus + wallBonus + velBonusXZ + 0.025;
+            } else if (isLanding) {
+                double clampedAir = Math.min(0.585 * potionMultiplier + soulSpeedBonus + ceilingBonus + wallBonus + velBonusXZ, lastDeltaXZ);
                 double groundFriction = 0.546;
                 double sprintAccel = 0.13 * potionMultiplier;
-                boolean freshLiquidLanding = (groundTicks >= 8 && groundTicks <= 12 && data.hadVelocityThisAir());
-                double landingBuffer = (lastDeltaXZ > 0.30 && (groundTicks <= 4 || freshLiquidLanding)) ? (lastDeltaXZ * 0.18) : 0.0;
-                frictionDecelLimit = (lastDeltaXZ * groundFriction) + sprintAccel + ceilingBonus + wallBonus + velBonusXZ + landingBuffer + 0.045;
+                double landingLimit = (clampedAir * groundFriction) + sprintAccel + ceilingBonus + wallBonus + velBonusXZ + 0.025;
+                maxGroundSpeed = Math.max(maxFlatSprint, landingLimit);
+            } else if (groundTicks <= 3 && lastDeltaXZ > 0.27) {
+                double clampedPrev = Math.min(0.50 * potionMultiplier + soulSpeedBonus + ceilingBonus + wallBonus + velBonusXZ, lastDeltaXZ);
+                double decelLimit = (clampedPrev * 0.546) + (0.09 * potionMultiplier) + ceilingBonus + wallBonus + velBonusXZ + 0.020;
+                maxGroundSpeed = Math.max(maxFlatSprint, decelLimit);
             }
 
-            double baseGroundSpeed = (typeAMaxBaseSpeed * potionMultiplier) + soulSpeedBonus + jumpBuffer + ceilingBonus + wallBonus + velBonusXZ + 0.045;
-            double maxGroundSpeed = Math.max(baseGroundSpeed, frictionDecelLimit);
 
             if (deltaXZ > maxGroundSpeed) {
                 fail(player, data, "Type A (Ground Speed)", typeAVlIncrement,
-                        String.format("Exceeded maximum ground speed (dXZ=%.4f > max=%.4f, last=%.4f, ceil=%s, wall=%s, grnd=%d)",
-                                deltaXZ, maxGroundSpeed, lastDeltaXZ, data.isUnderLowCeiling(), data.isNearWall(), groundTicks));
+                        String.format("Exceeded maximum ground speed (dXZ=%.4f > max=%.4f, last=%.4f, ceil=%s, wall=%s, grnd=%d, jump=%b)",
+                                deltaXZ, maxGroundSpeed, lastDeltaXZ, data.isUnderLowCeiling(), data.isNearWall(), groundTicks, isJumping));
                 return;
-            }
-
-            double flatSprintLimit = (0.360 * potionMultiplier) + soulSpeedBonus + wallBonus + velBonusXZ + 0.045;
-            if (!data.isUnderLowCeiling() && !data.isNearWall() && !data.hadVelocityThisAir()
-                    && groundTicks >= 10 && Math.abs(deltaY) < 0.005 && deltaXZ > flatSprintLimit) {
-                fail(player, data, "Type A (Ground Speed)", typeAVlIncrement,
-                        String.format("Sustained flat ground speed without jumping (dXZ=%.4f > max=%.4f, grnd=%d)",
-                                deltaXZ, flatSprintLimit, groundTicks));
             }
         }
     }
@@ -214,7 +232,7 @@ public class SpeedCheck extends Check {
         if (config == null) return;
         this.enabled = config.getBoolean("enabled", true);
         this.setbackEnabled = config.getBoolean("setback.enabled", true);
-        this.alertVl = config.getDouble("violations.alert-threshold", 2.0);
+        this.alertVl = config.getDouble("violations.alert-threshold", 1.0);
         this.maxVl = config.getDouble("violations.punishment-threshold", 25.0);
 
         this.typeAEnabled = config.getBoolean("subchecks.type-a.enabled", true);

@@ -34,7 +34,8 @@ public abstract class Check {
     public void fail(Player player, PlayerData data, String subCheck, double vlIncrement, String debugInfo) {
         if (!manager.isEnabled() || !enabled) return;
 
-        double newVl = data.addViolation(id + "_" + subCheck, vlIncrement);
+        double newVl = data.addViolation(id, vlIncrement);
+        data.addViolation(id + "_" + subCheck, vlIncrement);
 
         if (manager.isDebug()) {
             manager.getPlugin().getLogger().info(String.format(
@@ -43,7 +44,6 @@ public abstract class Check {
             ));
         }
 
-        // Record flag in /sus suspect tracking
         com.h2ph.commands.admin.moderations.SusCommand.recordViolation(player, name, subCheck, newVl);
 
         if (newVl >= alertVl) {
@@ -60,21 +60,27 @@ public abstract class Check {
     }
 
     public void setback(Player player, PlayerData data) {
+        if (data.isAnticheatSetback()) return;
+
         Location groundLoc = data.getLastGroundLocation();
         if (groundLoc != null && groundLoc.getWorld() != null) {
             Location target = groundLoc.clone();
             target.setYaw(player.getLocation().getYaw());
             target.setPitch(player.getLocation().getPitch());
 
-            data.setAnticheatSetback(true);
+            data.markSetbackPending();
             data.resetMovementState(target);
 
+            manager.getPlugin().getSchedulerAdapter().runTaskLater(() -> {
+                if (data.isAnticheatSetback()) {
+                    data.setAnticheatSetback(false);
+                }
+            }, 10L);
+
             try {
-                player.setVelocity(new org.bukkit.util.Vector(0, -0.08, 0));
-                player.teleport(target, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN);
+                player.teleportAsync(target, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN);
             } catch (Throwable t) {
                 try {
-                    player.setVelocity(new org.bukkit.util.Vector(0, -0.08, 0));
                     player.teleportAsync(target);
                 } catch (Throwable t2) {
                     player.teleport(target);

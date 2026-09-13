@@ -46,6 +46,14 @@ public class FalconCommand implements CommandExecutor, TabCompleter {
             return handleReload(sender);
         }
 
+        if (sub.equals("ac") || sub.equals("anticheat")) {
+            if (plugin.getAntiCheatManager() != null && plugin.getAntiCheatManager().getCommand() != null) {
+                String[] subArgs = Arrays.copyOfRange(args, 1, args.length);
+                return plugin.getAntiCheatManager().getCommand().onCommand(sender, command, "falcon ac", subArgs);
+            }
+            return true;
+        }
+
         if (!(sender instanceof Player)) {
             sender.sendMessage("This command is only for players.");
             return true;
@@ -706,10 +714,16 @@ public class FalconCommand implements CommandExecutor, TabCompleter {
         if (args.length == 1) {
             return Arrays
                     .asList("reload", "auction", "order", "rtpqueue", "void", "setafk", "respawngear", "limiter",
-                            "crystal", "anchor", "pvpsafe", "warps", "shards")
+                            "crystal", "anchor", "pvpsafe", "warps", "shards", "ac")
                     .stream()
                     .filter(s -> s.startsWith(args[0].toLowerCase()))
                     .collect(Collectors.toList());
+        } else if (args[0].equalsIgnoreCase("ac") || args[0].equalsIgnoreCase("anticheat")) {
+            if (plugin.getAntiCheatManager() != null && plugin.getAntiCheatManager().getCommand() != null) {
+                String[] subArgs = Arrays.copyOfRange(args, 1, args.length);
+                return plugin.getAntiCheatManager().getCommand().onTabComplete(sender, command, "falcon ac", subArgs);
+            }
+            return Collections.emptyList();
         } else if (args.length == 2) {
             if (args[0].equalsIgnoreCase("respawngear")) {
                 return Arrays.asList("setup", "delete").stream()

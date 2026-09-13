@@ -1592,7 +1592,7 @@ public class Falcon extends JavaPlugin {
 
         if (antiCheatManager != null && antiCheatManager.isEnabled()) {
             console.sendMessage(
-                    org.bukkit.ChatColor.translateAlternateColorCodes('&', "&b  [+] &fFalcon AntiCheat (Fly): &a&lONLINE"));
+                    org.bukkit.ChatColor.translateAlternateColorCodes('&', "&b  [+] &fFalcon AntiCheat: &a&lONLINE"));
         } else {
             console.sendMessage(
                     org.bukkit.ChatColor.translateAlternateColorCodes('&', "&b  [-] &fFalcon AntiCheat: &c&lOFFLINE"));

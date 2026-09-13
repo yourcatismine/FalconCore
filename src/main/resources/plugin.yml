@@ -375,10 +375,6 @@ commands:
     permission: falcon.checker
     aliases: []
 
-  anticheat:
-    description: Falcon AntiCheat management and alerts
-    usage: /anticheat <alerts|info|reset|checks|reload> [player]
-    aliases: [ac]
 
   invsee:
     description: View another player's inventory

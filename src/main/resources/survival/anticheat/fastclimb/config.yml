@@ -1,0 +1,22 @@
+# ─────────────────────────────────────────────────────────────
+# FalconCore - AntiCheat: FastClimb & Spider Detection Configuration
+# ─────────────────────────────────────────────────────────────
+
+enabled: true
+
+violations:
+  alert-threshold: 1.0
+  punishment-threshold: 20.0
+
+setback:
+  enabled: true
+  min-vl: 1.0
+
+subchecks:
+  type-a:
+    enabled: true
+    max-ladder-speed: 0.175
+    vl-increment: 1.5
+  type-b:
+    enabled: true
+    vl-increment: 1.5

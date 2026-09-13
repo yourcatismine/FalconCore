@@ -1,0 +1,27 @@
+# ─────────────────────────────────────────────────────────────
+# FalconCore - AntiCheat: Criticals Messages Configuration
+# ─────────────────────────────────────────────────────────────
+
+alert:
+  messages:
+    - "&c&m---------------------------------"
+    - "&c AntiCheat Detection: &f%player%"
+    - ""
+    - "&c Status: &eDetected"
+    - "&c Check: &f%check% &8(&c%type%&8)"
+    - "&c Violation Level: &f%vl%"
+    - "&c Ping: &f%ping%ms"
+    - "&c Details: &7%details%"
+    - "&c Date: &f%date%"
+    - "&c&m---------------------------------"
+  hover:
+    - "&c&lFalcon AntiCheat"
+    - "&8&m---------------------------------"
+    - "&7Player: &f%player%"
+    - "&7Check: &c%check% &7(%type%)"
+    - "&7Violation: &e%vl%"
+    - "&7Ping: &f%ping%ms"
+    - "&7Details: &f%details%"
+    - "&8&m---------------------------------"
+    - "&aClick to teleport to player"
+  click-command: "/tp %player%"

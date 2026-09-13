@@ -56,7 +56,7 @@ public class FlyCheck extends Check {
         if (player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR) return;
         if (player.getAllowFlight() || player.isFlying()) return;
 
-        if (player.hasPermission(manager.getBypassPermission())) return;
+        if (manager.hasBypass(player)) return;
 
         if (manager.isIgnoreBedrock() && data.isBedrock()) return;
 
@@ -80,11 +80,11 @@ public class FlyCheck extends Check {
         int fallTicks = data.getFallTicks();
         int jumpTicks = data.getJumpTicks();
         int jumpBoostLevel = data.getPotionAmplifier(player, PotionEffectType.JUMP_BOOST);
-        boolean hasVelocity = data.getVelocityTicks() > 0;
-        boolean hadVelocityThisAir = data.hadVelocityThisAir();
+        boolean hasVelocity = data.getVelocityTicks() > 0 || data.getWindBoostTicks() > 0;
+        boolean hadVelocityThisAir = data.hadVelocityThisAir() || data.getWindBoostTicks() > 0;
         boolean isRiptideLaunch = isLegitRiptide && data.getRiptideTicks() >= 18;
 
-        if (typeGEnabled && airTicks >= typeGMinAirTicks && !data.isBouncedOnSlime() && !data.isBouncedOnBed() && !hasVelocity && !hadVelocityThisAir && !isLegitRiptide) {
+        if (typeGEnabled && airTicks >= typeGMinAirTicks && !data.isBouncedOnSlime() && !data.isBouncedOnBed() && !hasVelocity && !hadVelocityThisAir && !isLegitRiptide && data.getWindBoostTicks() <= 0) {
             boolean midAirReJump = (lastDeltaY <= 0.0 && deltaY > 0.05);
             boolean unnaturalUpwardAcc = (lastDeltaY > 0.0 && deltaY > (lastDeltaY + 0.035));
 
@@ -95,18 +95,49 @@ public class FlyCheck extends Check {
             }
         }
 
-        if (typeAEnabled && airTicks >= typeAMinAirTicks && ascendTicks == 0
-                && !hasVelocity && !hadVelocityThisAir && !isLegitRiptide) {
-            if (Math.abs(deltaY) <= typeAMaxDeltaY
-                    && Math.abs(lastDeltaY) <= typeAMaxDeltaY
-                    && !data.isNearSolidBelow() && !data.isOnGround()) {
-                fail(player, data, "Type A (Hover)", typeAVlIncrement,
-                        String.format("Hovering in mid-air (airTicks=%d, dY=%.4f)", airTicks, deltaY));
-                return;
+        if (typeAEnabled && airTicks >= 2 && !hasVelocity && !hadVelocityThisAir && !isLegitRiptide && data.getWindBoostTicks() <= 0) {
+            if (!data.isNearSolidBelow() && !data.isOnGround()) {
+                if (airTicks >= 3 && Math.abs(deltaY) <= 0.015 && Math.abs(lastDeltaY) <= 0.015 && data.getDeltaXZ() < 0.12) {
+                    fail(player, data, "Type A (Hover)", typeAVlIncrement,
+                            String.format("Hovering in mid-air (airTicks=%d, dY=%.4f)", airTicks, deltaY));
+                    return;
+                }
+                if (Math.abs(deltaY) <= 0.045 && Math.abs(lastDeltaY) <= 0.045 && data.getDeltaXZ() > 0.15) {
+                    fail(player, data, "Type A (Horizontal Fly)", typeAVlIncrement,
+                            String.format("Horizontal mid-air flight (airTicks=%d, dY=%.4f, dXZ=%.3f)", airTicks, deltaY, data.getDeltaXZ()));
+                    return;
+                }
             }
         }
 
-        if (typeBEnabled && airTicks >= typeBMinAirTicks && fallTicks >= 3 && lastDeltaY < -0.05 && deltaY < -0.05 && !hasVelocity && !hadVelocityThisAir && !isLegitRiptide) {
+        if (typeEEnabled && airTicks >= 2 && deltaY > 0.0 && !data.isBouncedOnSlime() && !data.isBouncedOnBed() && !hasVelocity && !isLegitRiptide && data.getRiptideTicks() <= 0 && data.getWindBoostTicks() <= 0) {
+            if (!data.isOnSlime() && !data.isOnBed() && !data.isNearSolidBelow() && !data.isOnGround()) {
+                if (lastDeltaY > 0.0 && !hadVelocityThisAir && data.getWindBoostTicks() <= 0) {
+                    double expectedDeltaY = (lastDeltaY - 0.08) * 0.98;
+                    double diff = deltaY - expectedDeltaY;
+                    if (diff > 0.035) {
+                        fail(player, data, "Type E (Ascent)", typeEVlIncrement,
+                                String.format("Illegal upward acceleration/jetpack (dY=%.4f, exp=%.4f, diff=%.4f, airTicks=%d)",
+                                        deltaY, expectedDeltaY, diff, airTicks));
+                        return;
+                    }
+                }
+
+                int velAscendTicks = 0;
+                if (data.hadVelocityThisAir() && data.getLastVelocity() != null && data.getLastVelocity().getY() > 0) {
+                    velAscendTicks = (int) Math.ceil(data.getLastVelocity().getY() / 0.06);
+                }
+                int maxAscendTicks = 6 + (jumpBoostLevel * 3) + velAscendTicks;
+                if (ascendTicks > maxAscendTicks && data.getWindBoostTicks() <= 0 && !hadVelocityThisAir) {
+                    fail(player, data, "Type E (Ascent)", typeEVlIncrement,
+                            String.format("Prolonged mid-air ascent (ascendTicks=%d > max=%d, dY=%.4f)",
+                                    ascendTicks, maxAscendTicks, deltaY));
+                    return;
+                }
+            }
+        }
+
+        if (typeBEnabled && airTicks >= typeBMinAirTicks && fallTicks >= 2 && lastDeltaY < -0.05 && deltaY < -0.05 && !hasVelocity && !hadVelocityThisAir && !isLegitRiptide && data.getWindBoostTicks() <= 0) {
             if (!data.isNearSolidBelow() && !data.isOnGround()) {
                 double expectedDeltaY = (lastDeltaY - 0.08) * 0.98;
                 double difference = deltaY - expectedDeltaY;
@@ -121,7 +152,7 @@ public class FlyCheck extends Check {
             }
         }
 
-        if (typeCEnabled && !data.isBouncedOnSlime() && !data.isBouncedOnBed() && !hasVelocity && !isLegitRiptide && !data.hadVelocityThisAir()) {
+        if (typeCEnabled && !data.isBouncedOnSlime() && !data.isBouncedOnBed() && !hasVelocity && !isLegitRiptide && !hadVelocityThisAir && data.getWindBoostTicks() <= 0 && data.getExplosionTicks() <= 0) {
             if (jumpTicks == 1 && deltaY > 0) {
                 double maxAllowedInitialAscent = 0.42 + (jumpBoostLevel * 0.1) + 0.10;
 
@@ -148,22 +179,6 @@ public class FlyCheck extends Check {
             fail(player, data, "Type D (Ground Spoof)", typeDVlIncrement,
                     String.format("Spoofed ground packet while airborne (airTicks=%d, dY=%.4f)", airTicks, deltaY));
             return;
-        }
-
-        if (typeEEnabled && airTicks >= 3 && deltaY > 0.0 && !data.isBouncedOnSlime() && !data.isBouncedOnBed() && !hasVelocity && !isLegitRiptide && data.getRiptideTicks() <= 0) {
-            if (!data.isOnSlime() && !data.isOnBed() && !data.isNearSolidBelow() && !data.isOnGround()) {
-                int velAscendTicks = 0;
-                if (data.hadVelocityThisAir() && data.getLastVelocity() != null && data.getLastVelocity().getY() > 0) {
-                    velAscendTicks = (int) Math.ceil(data.getLastVelocity().getY() / 0.06);
-                }
-                int maxAscendTicks = 6 + (jumpBoostLevel * 3) + velAscendTicks;
-                if (ascendTicks > maxAscendTicks) {
-                    fail(player, data, "Type E (Ascent)", typeEVlIncrement,
-                            String.format("Prolonged mid-air ascent (ascendTicks=%d > max=%d, dY=%.4f)",
-                                    ascendTicks, maxAscendTicks, deltaY));
-                    return;
-                }
-            }
         }
 
         if (typeFEnabled && fallTicks >= typeFMinFallTicks && !data.isNearSolidBelow() && !isLegitRiptide && data.getRiptideTicks() <= 0) {
