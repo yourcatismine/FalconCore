@@ -218,6 +218,9 @@ public class PlayerDataManager {
             if (cratesConfig.contains("pending_kick_team")) {
                 data.setPendingKickTeamName(cratesConfig.getString("pending_kick_team"));
             }
+            if (cratesConfig.contains("tier_rank")) {
+                data.setTierRank(cratesConfig.getString("tier_rank"));
+            }
 
             if (cratesConfig.contains("ignored_players")) {
                 java.util.List<String> ignoredUuids = cratesConfig.getStringList("ignored_players");
@@ -410,6 +413,7 @@ public class PlayerDataManager {
         cratesConfig.set("mute.date", data.getMuteDate());
         cratesConfig.set("combat_logged", data.isCombatLogged());
         cratesConfig.set("pending_kick_team", data.getPendingKickTeamName());
+        cratesConfig.set("tier_rank", data.getTierRank());
 
         java.util.List<String> ignoredUuids = new java.util.ArrayList<>();
         for (UUID ignoredUuid : data.getIgnoredPlayers()) {

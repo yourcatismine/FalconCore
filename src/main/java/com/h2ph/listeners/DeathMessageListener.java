@@ -88,10 +88,14 @@ public class DeathMessageListener implements Listener {
         String cleanMessage = customMessage.replaceAll("§[0-9a-fk-or]", "");
         plugin.getLogger().info("Death: " + cleanMessage);
 
-        plugin.getDiscordWebhookManager().sendDeathMessage(
-                victim.getName(),
-                victim.getUniqueId().toString(),
-                customMessage);
+        if (plugin.getFalconBotManager() == null || 
+                (!plugin.getFalconBotManager().isBot(victim.getUniqueId()) && 
+                 !plugin.getFalconBotManager().isBot(victim.getName()))) {
+            plugin.getDiscordWebhookManager().sendDeathMessage(
+                    victim.getName(),
+                    victim.getUniqueId().toString(),
+                    customMessage);
+        }
 
         String dateTime = LocalDateTime.now(ZoneId.of("UTC")).format(DateTimeFormatter.ofPattern("dd/MM HH:mm:ss"));
         String historyMsg;
@@ -103,16 +107,20 @@ public class DeathMessageListener implements Listener {
             historyMsg = dateTime + " - " + cleanMessage;
         }
 
-        PlayerData victimData = plugin.getPlayerDataManager().get(victim.getUniqueId());
-        if (victimData != null) {
-            org.bukkit.Location loc = victim.getLocation();
-            String locStr = String.format("%s (%.1f, %.1f, %.1f)", loc.getWorld().getName(), loc.getX(), loc.getY(),
-                    loc.getZ());
-            String inventorySnapshot = getInventorySnapshot(victim);
+        if (plugin.getFalconBotManager() == null || 
+                (!plugin.getFalconBotManager().isBot(victim.getUniqueId()) && 
+                 !plugin.getFalconBotManager().isBot(victim.getName()))) {
+            PlayerData victimData = plugin.getPlayerDataManager().get(victim.getUniqueId());
+            if (victimData != null) {
+                org.bukkit.Location loc = victim.getLocation();
+                String locStr = String.format("%s (%.1f, %.1f, %.1f)", loc.getWorld().getName(), loc.getX(), loc.getY(),
+                        loc.getZ());
+                String inventorySnapshot = getInventorySnapshot(victim);
 
-            String enhancedMsg = historyMsg + "\nLocation: " + locStr + "\nInventory: " + inventorySnapshot;
-            victimData.addHistory(enhancedMsg);
-            plugin.getPlayerDataManager().savePlayerAsync(victim.getUniqueId());
+                String enhancedMsg = historyMsg + "\nLocation: " + locStr + "\nInventory: " + inventorySnapshot;
+                victimData.addHistory(enhancedMsg);
+                plugin.getPlayerDataManager().savePlayerAsync(victim.getUniqueId());
+            }
         }
     }
 

@@ -68,24 +68,37 @@ public class DiscordWebhookManager {
         serverIconUrl   = cfg.getString("discord-webhooks.server-icon-url", "");
     }
 
+    private boolean isBot(String playerName, String uuidStr) {
+        if (plugin == null || plugin.getFalconBotManager() == null) return false;
+        if (uuidStr != null && !uuidStr.isEmpty()) {
+            try {
+                if (plugin.getFalconBotManager().isBot(java.util.UUID.fromString(uuidStr))) {
+                    return true;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return playerName != null && plugin.getFalconBotManager().isBot(playerName);
+    }
+
     public void sendChatMessage(String playerName, String uuid, String message) {
-        if (!chatEnabled || chatWebhook.isEmpty()) return;
+        if (!chatEnabled || chatWebhook.isEmpty() || isBot(playerName, uuid)) return;
         String description = message;
         sendEmbed(chatWebhook, playerName, uuid, description, COLOR_CHAT, null);
     }
 
     public void sendJoinMessage(String playerName, String uuid) {
-        if (!joinLeaveEnabled || joinLeaveWebhook.isEmpty()) return;
+        if (!joinLeaveEnabled || joinLeaveWebhook.isEmpty() || isBot(playerName, uuid)) return;
         sendEmbed(joinLeaveWebhook, playerName, uuid, playerName + " joined the server.", COLOR_JOIN, "Player Join");
     }
 
     public void sendLeaveMessage(String playerName, String uuid) {
-        if (!joinLeaveEnabled || joinLeaveWebhook.isEmpty()) return;
+        if (!joinLeaveEnabled || joinLeaveWebhook.isEmpty() || isBot(playerName, uuid)) return;
         sendEmbed(joinLeaveWebhook, playerName, uuid, playerName + " left the server.", COLOR_LEAVE, "Player Leave");
     }
 
     public void sendDeathMessage(String playerName, String uuid, String deathMessage) {
-        if (!deathEnabled || deathWebhook.isEmpty()) return;
+        if (!deathEnabled || deathWebhook.isEmpty() || isBot(playerName, uuid)) return;
         String clean = stripColor(deathMessage);
         sendEmbed(deathWebhook, playerName, uuid, clean, COLOR_DEATH, "Death");
     }
@@ -93,6 +106,7 @@ public class DiscordWebhookManager {
     public void sendAntiCheatAlert(String playerName, String uuid, String title, String description, int color) {
         if (!anticheatEnabled || anticheatWebhook == null || anticheatWebhook.isEmpty()) return;
         sendEmbed(anticheatWebhook, playerName, uuid, description, color, title);
+
     }
 
 

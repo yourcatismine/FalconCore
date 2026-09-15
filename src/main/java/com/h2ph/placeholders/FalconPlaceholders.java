@@ -111,6 +111,38 @@ public class FalconPlaceholders extends PlaceholderExpansion {
             return formatPlaytime(remaining);
         }
     
+        if (params.equalsIgnoreCase("tps")) {
+            return String.valueOf(com.h2ph.managers.TabListManager.getLiveTPS());
+        }
+
+        if (params.equalsIgnoreCase("mspt")) {
+            return String.valueOf(com.h2ph.managers.TabListManager.getLiveMSPT());
+        }
+
+        if (params.equalsIgnoreCase("ping")) {
+            if (player.isOnline()) {
+                org.bukkit.entity.Player p = player.getPlayer();
+                if (p != null) return String.valueOf(p.getPing());
+            }
+            return "0";
+        }
+
+        if (params.equalsIgnoreCase("tier")) {
+            if (plugin.getTierRankManager() != null) {
+                String formatted = plugin.getTierRankManager().getPlayerFormattedTier(player.getUniqueId());
+                return formatted != null ? formatted : "";
+            }
+            return "";
+        }
+
+        if (params.equalsIgnoreCase("tier_raw")) {
+            if (plugin.getTierRankManager() != null) {
+                String raw = plugin.getTierRankManager().getPlayerTier(player.getUniqueId());
+                return raw != null ? raw : "";
+            }
+            return "";
+        }
+
         if (params.equalsIgnoreCase("sell_made")) {
             if (plugin.getFalconSell() != null && plugin.getFalconSell().getPlayerDataManager() != null) {
                 com.falconcore.survival.sell.data.PlayerData sellPd = plugin.getFalconSell().getPlayerDataManager()

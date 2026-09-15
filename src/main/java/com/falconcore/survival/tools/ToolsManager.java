@@ -339,6 +339,8 @@ public class ToolsManager {
 
         meta.getPersistentDataContainer().set(ToolsManager.BOOSTER_KEY, org.bukkit.persistence.PersistentDataType.BYTE,
                 (byte) 1);
+        meta.getPersistentDataContainer().set(ToolsManager.REMAINING_KEY, org.bukkit.persistence.PersistentDataType.LONG,
+                timerSec);
         long expiryTimestamp = System.currentTimeMillis() + (timerSec * 1000L);
         meta.getPersistentDataContainer().set(ToolsManager.EXPIRY_KEY, org.bukkit.persistence.PersistentDataType.LONG,
                 expiryTimestamp);

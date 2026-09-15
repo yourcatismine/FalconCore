@@ -188,6 +188,17 @@ commands:
     aliases: [nightvision]
     usage: /nv
 
+  staffmode:
+    description: Toggle staff mode on or off
+    aliases: [sm]
+    permission: falcon.staffmode
+    usage: /staffmode
+
+  spawnstash:
+    description: Generate a fake stash cluster to catch X-Ray/ESP hackers
+    permission: falcon.spawnstash
+    usage: /spawnstash
+
   discord:
     description: View the server discord link
     usage: /discord
@@ -428,16 +439,13 @@ commands:
     usage: /unignore <player>
     default: true
 
-  testcombat:
-    description: Trigger a combat tag countdown for testing
-    usage: /testcombat [seconds] or /testcombat <player> [seconds]
-    permission: falcon.testcombat
+  tier:
+    description: Manage player tier ranks
+    usage: /tier <add|remove|set> <player> <tier>
+    permission: falcon.lowtier
     default: op
 
 permissions:
-  falcon.testcombat:
-    description: Allows testing combat countdown via /testcombat
-    default: op
   falcon.redstone:
     description: Permission to use /redstone admin commands
     default: false
@@ -596,3 +604,15 @@ permissions:
   falcon.anticheat.bypass:
     description: Permission to bypass Falcon AntiCheat checks
     default: false
+
+  falcon.staffmode:
+    description: Permission to use /staffmode
+    default: op
+
+  falcon.spawnstash:
+    description: Permission to use /spawnstash
+    default: op
+
+  falcon.lowtier:
+    description: Permission to manage player tier ranks via /lowtier
+    default: op

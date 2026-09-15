@@ -96,6 +96,7 @@ public class SpawnerCommand implements CommandExecutor, TabCompleter {
                 plugin.getSchedulerAdapter().runAtLocation(onlineTarget.getLocation(), () -> {
                     ItemStack item = com.falconcore.survival.spawners.util.SpawnerItemUtil.createSpawnerItem(type, amount);
                     onlineTarget.getInventory().addItem(item);
+                    com.falconcore.survival.spawners.util.SpawnerDebugLogger.logGive(plugin, sender.getName(), onlineTarget, type, amount, true);
 
                     String msg = com.falconcore.survival.tools.Utils.formatColors("&7Given&a " + onlineTarget.getName() + "&7 spawner&a " + type.name() + "&7 " + amount);
                     sender.sendMessage(msg);

@@ -98,6 +98,14 @@ public class TeamCommand implements CommandExecutor, TabCompleter {
                 }
                 handleChat(player, data);
                 break;
+            case "echest":
+            case "enderchest":
+                if (data.getTeamId() == null) {
+                    sendNoTeamError(player);
+                    break;
+                }
+                handleEchest(player, data);
+                break;
             default:
                 sendSilentError(player);
                 break;
@@ -345,6 +353,21 @@ public class TeamCommand implements CommandExecutor, TabCompleter {
         }
     }
 
+    private void handleEchest(Player player, PlayerData data) {
+        if (data.getTeamId() == null) {
+            sendNoTeamError(player);
+            return;
+        }
+
+        Team team = teamManager.getTeam(data.getTeamId());
+        if (team == null) {
+            sendNoTeamError(player);
+            return;
+        }
+
+        plugin.getTeamEnderChestManager().open(player, team.getId(), team.getName());
+    }
+
     private void sendNoTeamError(Player player) {
         sendAlert(player, "&cYou dont have a team.", Sound.ENTITY_VILLAGER_NO);
     }
@@ -377,7 +400,7 @@ public class TeamCommand implements CommandExecutor, TabCompleter {
             if (data.getTeamId() == null) {
                 subs = List.of("create", "join");
             } else {
-                subs = new ArrayList<>(List.of("leave"));
+                subs = new ArrayList<>(List.of("leave", "echest"));
                 if ("OWNER".equals(data.getTeamRole())) {
                     subs.add("invite");
                     subs.add("disband");

@@ -1,3 +1,26 @@
+# Player Collision Management
+# If false, players cannot push each other. If true, vanilla player pushing applies.
+enable-player-collisions: true
+
+# Custom Join and Leave Messages & Sounds
+join-leave:
+  join:
+    enabled: true
+    message: "&8[&a+&8] &7{player}"
+    sound:
+      enabled: true
+      name: "falcon.mama"
+      volume: 1.0
+      pitch: 1.0
+  leave:
+    enabled: true
+    message: "&8[&c-&8] &7{player}"
+    sound:
+      enabled: false
+      name: ""
+      volume: 1.0
+      pitch: 1.0
+
 region:
   - "Asia"
 
@@ -54,6 +77,7 @@ combat:
   - "fly"
   - "duel"
   - "afk"
+  - "team"
 
 disabled-fly:
   - world

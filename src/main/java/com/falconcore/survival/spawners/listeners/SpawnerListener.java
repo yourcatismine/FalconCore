@@ -8,11 +8,13 @@ import com.falconcore.survival.spawners.holder.SpawnerGUIHolder;
 import com.falconcore.survival.spawners.mob.SpawnerType;
 import com.falconcore.survival.spawners.storage.SpawnerData;
 import com.falconcore.survival.spawners.util.SpawnerItemUtil;
+import com.falconcore.survival.spawners.util.SpawnerDebugLogger;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.block.CreatureSpawner;
 import org.bukkit.enchantments.Enchantment;
+import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -100,6 +102,7 @@ public class SpawnerListener implements Listener {
         SpawnerData data = new SpawnerData(event.getBlock().getLocation(), player.getUniqueId(), type, stack);
         plugin.getSpawnerManager().addSpawner(data);
         plugin.getDiscordWebhookManager().sendSpawnerPlaced(player, type, stack, event.getBlock().getLocation());
+        SpawnerDebugLogger.logPlace(plugin, player, event.getBlock(), type, stack, item);
 
         CreatureSpawner cs = (CreatureSpawner) event.getBlock().getState();
         try {
@@ -121,6 +124,15 @@ public class SpawnerListener implements Listener {
         if (block.getType() != Material.SPAWNER) return;
 
         Player player = event.getPlayer();
+
+        if (plugin.getStashManager() != null && plugin.getStashManager().isFakeStash(block.getLocation())) {
+            event.setExpToDrop(0);
+            event.setDropItems(false);
+            plugin.getSpawnerManager().removeSpawner(block.getLocation());
+            plugin.getStashManager().removeFakeStash(block.getLocation());
+            return;
+        }
+
         SpawnerData data = plugin.getSpawnerManager().getSpawner(block.getLocation());
 
         boolean isVirtual = plugin.getSpawnerConfig().getBoolean("settings.natural_spawners_virtual", false);
@@ -139,6 +151,8 @@ public class SpawnerListener implements Listener {
                 player.playSound(player.getLocation(), Sound.valueOf("VILLAGER_NO"), 1.0f, 1.0f);
                 } catch (Throwable ignored) {}
                 }
+                SpawnerDebugLogger.logBreak(plugin, player, block, data, isVirtual, requireSilk, hasSilk, player.isSneaking(),
+                        "BLOCKED (No Silk Touch)", null, "Player attempted to mine spawner without Silk Touch enchantment");
                 event.setCancelled(true);
                 return;
             }
@@ -150,34 +164,44 @@ public class SpawnerListener implements Listener {
                 int currentStack = data.getStackSize();
                 if (currentStack > 64) {
                     ItemStack item = SpawnerItemUtil.createSpawnerItem(data.getType(), 64);
-                    block.getWorld().dropItemNaturally(block.getLocation(), item);
+                    Item dropped = block.getWorld().dropItemNaturally(block.getLocation(), item);
                     data.setStackSize(currentStack - 64);
                     plugin.getDiscordWebhookManager().sendSpawnerBroken(player, data.getType(), 64, block.getLocation());
+                    SpawnerDebugLogger.logBreak(plugin, player, block, data, isVirtual, requireSilk, hasSilk, true,
+                            "MINED (Sneak, Stack > 64) - Dropped 64x spawner item(s). New remaining stack: " + data.getStackSize(), dropped, null);
                     event.setCancelled(true);
                 } else {
                     ItemStack item = SpawnerItemUtil.createSpawnerItem(data.getType(), currentStack);
-                    block.getWorld().dropItemNaturally(block.getLocation(), item);
+                    Item dropped = block.getWorld().dropItemNaturally(block.getLocation(), item);
                     plugin.getDiscordWebhookManager().sendSpawnerBroken(player, data.getType(), currentStack, block.getLocation());
                     plugin.getSpawnerManager().removeSpawner(block.getLocation());
+                    SpawnerDebugLogger.logBreak(plugin, player, block, data, isVirtual, requireSilk, hasSilk, true,
+                            "MINED (Sneak, Stack <= 64) - Dropped " + currentStack + "x spawner item(s). Removed from manager.", dropped, null);
                 }
             } else {
                 if (data.getStackSize() > 1) {
                     data.setStackSize(data.getStackSize() - 1);
                     ItemStack item = SpawnerItemUtil.createSpawnerItem(data.getType(), 1);
-                    block.getWorld().dropItemNaturally(block.getLocation(), item);
+                    Item dropped = block.getWorld().dropItemNaturally(block.getLocation(), item);
                     plugin.getDiscordWebhookManager().sendSpawnerBroken(player, data.getType(), 1, block.getLocation());
+                    SpawnerDebugLogger.logBreak(plugin, player, block, data, isVirtual, requireSilk, hasSilk, false,
+                            "MINED (Single, Remaining > 0) - Dropped 1x spawner item. New remaining stack: " + data.getStackSize(), dropped, null);
                     event.setCancelled(true);
                 } else {
                     ItemStack item = SpawnerItemUtil.createSpawnerItem(data.getType(), 1);
-                    block.getWorld().dropItemNaturally(block.getLocation(), item);
+                    Item dropped = block.getWorld().dropItemNaturally(block.getLocation(), item);
                     plugin.getDiscordWebhookManager().sendSpawnerBroken(player, data.getType(), 1, block.getLocation());
                     plugin.getSpawnerManager().removeSpawner(block.getLocation());
+                    SpawnerDebugLogger.logBreak(plugin, player, block, data, isVirtual, requireSilk, hasSilk, false,
+                            "MINED (Single, Final) - Dropped 1x spawner item. Removed from manager.", dropped, null);
                 }
             }
 
         } else if (isVirtual) {
             if (player.getGameMode() != org.bukkit.GameMode.CREATIVE && requireSilk && !hasSilk) {
                 player.sendMessage(ChatColor.translateAlternateColorCodes('&', plugin.getSpawnerConfig().getString("messages.cannot_mine_without_silk")));
+                SpawnerDebugLogger.logBreak(plugin, player, block, null, isVirtual, requireSilk, hasSilk, player.isSneaking(),
+                        "BLOCKED (Virtual Spawner, No Silk Touch)", null, "Player attempted to mine virtual spawner without Silk Touch");
                 event.setCancelled(true);
                 return;
             }
@@ -188,9 +212,17 @@ public class SpawnerListener implements Listener {
                 event.setExpToDrop(0);
                 event.setDropItems(false);
                 ItemStack item = SpawnerItemUtil.createSpawnerItem(type, 1);
-                block.getWorld().dropItemNaturally(block.getLocation(), item);
+                Item dropped = block.getWorld().dropItemNaturally(block.getLocation(), item);
+                SpawnerDebugLogger.logBreak(plugin, player, block, null, isVirtual, requireSilk, hasSilk, player.isSneaking(),
+                        "MINED (Virtual Spawner) - Dropped 1x " + type.name() + " spawner item.", dropped, null);
             } catch (IllegalArgumentException e) {
+                SpawnerDebugLogger.logBreak(plugin, player, block, null, isVirtual, requireSilk, hasSilk, player.isSneaking(),
+                        "ERROR (Virtual Spawner) - Unknown entity type: " + cs.getSpawnedType(), null, e.getMessage());
             }
+        } else {
+            SpawnerDebugLogger.logBreak(plugin, player, block, null, isVirtual, requireSilk, hasSilk, player.isSneaking(),
+                    "VANILLA_BREAK - SpawnerData was NULL in SpawnerManager and natural_spawners_virtual is false.", null,
+                    "Block destroyed by vanilla game mechanics. EXP dropped, NO custom spawner item dropped!");
         }
     }
 
@@ -211,8 +243,10 @@ public class SpawnerListener implements Listener {
             SpawnerType typeInHand = SpawnerItemUtil.getSpawnerTypeFromItem(itemInHand);
             if (typeInHand != null && typeInHand == existingData.getType()) {
                 event.setCancelled(true);
+                int oldStack = existingData.getStackSize();
                 int amountToAdd = player.isSneaking() ? itemInHand.getAmount() : 1;
                 existingData.setStackSize(existingData.getStackSize() + amountToAdd);
+                SpawnerDebugLogger.logStack(plugin, player, block, typeInHand, oldStack, amountToAdd, existingData.getStackSize());
 
                 if (player.isSneaking()) {
                     player.getInventory().setItemInMainHand(null);

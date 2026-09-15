@@ -12,10 +12,6 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.block.Block;
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandExecutor;
-import org.bukkit.command.CommandSender;
-import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.EnderCrystal;
 import org.bukkit.entity.EnderPearl;
 import org.bukkit.entity.Entity;
@@ -40,7 +36,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-public class CombatListener implements Listener, CommandExecutor, TabCompleter {
+public class CombatListener implements Listener {
 
     private static CombatListener instance;
     private final Falcon plugin;
@@ -62,12 +58,7 @@ public class CombatListener implements Listener, CommandExecutor, TabCompleter {
         return instance;
     }
 
-    /**
-     * Check if a player is currently in combat tags.
-     * 
-     * @param p The player to check.
-     * @return true if the player is in combat and doesn't bypass it.
-     */
+    
     public boolean isInCombat(Player p) {
         if (p == null)
             return false;
@@ -387,98 +378,5 @@ public class CombatListener implements Listener, CommandExecutor, TabCompleter {
         if (remaining.containsKey(uuid)) {
             cancelTask(uuid);
         }
-    }
-
-    @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!label.equalsIgnoreCase("testcombat")) {
-            return false;
-        }
-
-        if (!sender.hasPermission("falcon.testcombat") && !sender.isOp()) {
-            sender.sendMessage(ChatColor.RED + "You do not have permission to use this command.");
-            return true;
-        }
-
-        Player target;
-        int seconds = DEFAULT_COMBAT_SECONDS;
-
-        if (args.length == 0) {
-            if (!(sender instanceof Player)) {
-                sender.sendMessage(ChatColor.RED + "Usage: /testcombat [seconds] or /testcombat <player> [seconds]");
-                return true;
-            }
-            target = (Player) sender;
-        } else if (args.length == 1) {
-            try {
-                seconds = Integer.parseInt(args[0]);
-                if (!(sender instanceof Player)) {
-                    sender.sendMessage(ChatColor.RED + "Usage: /testcombat <player> [seconds]");
-                    return true;
-                }
-                target = (Player) sender;
-            } catch (NumberFormatException e) {
-                target = Bukkit.getPlayer(args[0]);
-                if (target == null) {
-                    sender.sendMessage(ChatColor.RED + "Player not found: " + args[0]);
-                    return true;
-                }
-            }
-        } else {
-            target = Bukkit.getPlayer(args[0]);
-            if (target == null) {
-                sender.sendMessage(ChatColor.RED + "Player not found: " + args[0]);
-                return true;
-            }
-            try {
-                seconds = Integer.parseInt(args[1]);
-            } catch (NumberFormatException e) {
-                sender.sendMessage(ChatColor.RED + "Invalid seconds: " + args[1]);
-                return true;
-            }
-        }
-
-        if (seconds <= 0) {
-            sender.sendMessage(ChatColor.RED + "Seconds must be greater than 0.");
-            return true;
-        }
-
-        startCombatFor(target, seconds);
-        sender.sendMessage(ChatColor.GREEN + "Triggered combat countdown (" + seconds + "s) for " + target.getName() + ".");
-        if (target.getGameMode() == GameMode.CREATIVE) {
-            sender.sendMessage(ChatColor.YELLOW + "Warning: " + target.getName() + " is in Creative mode (combat countdown ends immediately in Creative).");
-        }
-        return true;
-    }
-
-    @Override
-    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        List<String> completions = new ArrayList<>();
-        if (!sender.hasPermission("falcon.testcombat") && !sender.isOp()) {
-            return completions;
-        }
-
-        if (args.length == 1) {
-            String input = args[0].toLowerCase();
-            for (Player p : Bukkit.getOnlinePlayers()) {
-                if (p.getName().toLowerCase().startsWith(input)) {
-                    completions.add(p.getName());
-                }
-            }
-            for (String sec : List.of("5", "10", "15", "20", "30", "60")) {
-                if (sec.startsWith(input)) {
-                    completions.add(sec);
-                }
-            }
-        } else if (args.length == 2) {
-            String input = args[1].toLowerCase();
-            for (String sec : List.of("5", "10", "15", "20", "30", "60")) {
-                if (sec.startsWith(input)) {
-                    completions.add(sec);
-                }
-            }
-        }
-
-        return completions;
     }
 }

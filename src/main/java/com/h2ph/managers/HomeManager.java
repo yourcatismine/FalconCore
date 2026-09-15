@@ -205,10 +205,26 @@ public class HomeManager {
     }
 
     public Integer getHomeIndexByName(UUID uuid, String name) {
+        if (name == null || name.trim().isEmpty()) {
+            return null;
+        }
         Map<Integer, HomeEntry> homes = getHomes(uuid);
+        String cleanSearch = org.bukkit.ChatColor.stripColor(com.falconcore.survival.orders.Utils.formatColors(name)).trim();
+
         for (Map.Entry<Integer, HomeEntry> entry : homes.entrySet()) {
-            if (entry.getValue().name() != null && entry.getValue().name().equalsIgnoreCase(name)) {
+            String entryName = entry.getValue().name();
+            if (entryName != null && entryName.equalsIgnoreCase(name.trim())) {
                 return entry.getKey();
+            }
+        }
+
+        for (Map.Entry<Integer, HomeEntry> entry : homes.entrySet()) {
+            String entryName = entry.getValue().name();
+            if (entryName != null) {
+                String cleanEntry = org.bukkit.ChatColor.stripColor(com.falconcore.survival.orders.Utils.formatColors(entryName)).trim();
+                if (cleanEntry.equalsIgnoreCase(cleanSearch)) {
+                    return entry.getKey();
+                }
             }
         }
         return null;

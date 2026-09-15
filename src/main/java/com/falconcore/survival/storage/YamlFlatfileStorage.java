@@ -42,7 +42,9 @@ public class YamlFlatfileStorage {
     private final File ordersFolder;
     private final File homesFolder;
     private final File teamsFolder;
+    private final File teamEnderchestsFolder;
     private final File enderchestFolder;
+    private final File anticheatLogsFolder;
     private final File sellHistoryFolder;
     private final File categoryDataFolder;
 
@@ -79,7 +81,9 @@ public class YamlFlatfileStorage {
         this.ordersFolder = mkdirs("server/orders");
         this.homesFolder = mkdirs("server/homes");
         this.teamsFolder = mkdirs("server/teams");
+        this.teamEnderchestsFolder = mkdirs("server/teams/enderchests");
         this.enderchestFolder = mkdirs("server/enderchest");
+        this.anticheatLogsFolder = mkdirs("server/anticheat/logs");
         this.sellHistoryFolder = mkdirs("server/sell_history");
         this.categoryDataFolder = mkdirs("server/category_data");
 
@@ -1470,6 +1474,74 @@ public class YamlFlatfileStorage {
         File file = new File(enderchestFolder, uuid.toString() + ".yml");
         if (!file.exists()) return null;
         return loadYaml(file).getString("contents");
+    }
+
+    public void saveTeamEnderChest(String teamId, String contentsBase64) {
+        plugin.getSchedulerAdapter().runTaskAsync(() -> {
+            File file = new File(teamEnderchestsFolder, teamId + ".yml");
+            FileConfiguration cfg = new YamlConfiguration();
+            cfg.set("contents", contentsBase64);
+            cfg.set("last_updated", System.currentTimeMillis());
+            saveYaml(cfg, file);
+        });
+    }
+
+    public String loadTeamEnderChest(String teamId) {
+        File file = new File(teamEnderchestsFolder, teamId + ".yml");
+        if (!file.exists()) return null;
+        return loadYaml(file).getString("contents");
+    }
+
+    public void deleteTeamEnderChest(String teamId) {
+        plugin.getSchedulerAdapter().runTaskAsync(() -> {
+            File file = new File(teamEnderchestsFolder, teamId + ".yml");
+            if (file.exists()) file.delete();
+        });
+    }
+
+    public void logAntiCheatViolation(UUID uuid, String playerName, String checkName, String subCheck,
+                                      double vl, int ping, String details, long timestamp) {
+        if (uuid == null) return;
+        plugin.getSchedulerAdapter().runTaskAsync(() -> {
+            File file = new File(anticheatLogsFolder, uuid.toString() + ".yml");
+            FileConfiguration cfg = loadYaml(file);
+            String key = "v_" + timestamp + "_" + (System.nanoTime() % 1000);
+            cfg.set(key + ".player_name", playerName != null ? playerName : "Unknown");
+            cfg.set(key + ".check_name", checkName != null ? checkName : "Unknown");
+            cfg.set(key + ".sub_check", subCheck != null ? subCheck : "Unknown");
+            cfg.set(key + ".vl", vl);
+            cfg.set(key + ".ping", ping);
+            cfg.set(key + ".details", details != null ? details : "");
+            cfg.set(key + ".timestamp", timestamp);
+            saveYaml(cfg, file);
+        });
+    }
+
+    public List<com.falconcore.anticheat.data.AntiCheatLogEntry> getAntiCheatViolations(UUID uuid, int limit) {
+        List<com.falconcore.anticheat.data.AntiCheatLogEntry> list = new ArrayList<>();
+        if (uuid == null) return list;
+        File file = new File(anticheatLogsFolder, uuid.toString() + ".yml");
+        if (!file.exists()) return list;
+        FileConfiguration cfg = loadYaml(file);
+        for (String key : cfg.getKeys(false)) {
+            ConfigurationSection sec = cfg.getConfigurationSection(key);
+            if (sec == null) continue;
+            list.add(new com.falconcore.anticheat.data.AntiCheatLogEntry(
+                    uuid,
+                    sec.getString("player_name", "Unknown"),
+                    sec.getString("check_name", "Unknown"),
+                    sec.getString("sub_check", "Unknown"),
+                    sec.getDouble("vl", 0.0),
+                    sec.getInt("ping", 0),
+                    sec.getString("details", ""),
+                    sec.getLong("timestamp", 0)
+            ));
+        }
+        list.sort((a, b) -> Long.compare(b.getTimestamp(), a.getTimestamp()));
+        if (limit > 0 && list.size() > limit) {
+            return new ArrayList<>(list.subList(0, limit));
+        }
+        return list;
     }
 
     

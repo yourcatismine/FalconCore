@@ -436,7 +436,7 @@ public class DisguiseCommand implements CommandExecutor, TabCompleter, Listener 
         });
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onChat(AsyncPlayerChatEvent evt) {
         Player player = evt.getPlayer();
         com.falconcore.survival.manager.PlayerData data = plugin.getPlayerDataManager().get(player.getUniqueId());

@@ -1,0 +1,12 @@
+# ============================================================
+# Falcon Tier Ranks Configuration
+# Ranks are automatically wrapped in white brackets &f[ ... &f]
+# Supports standard color codes (&a-&f, &0-&9) and Hex colors (&#rrggbb)
+# ============================================================
+
+ranks:
+  - "&aHT1s"
+  - "&bHT2"
+  - "&cLT1"
+  - "&#ff6600LT2"
+  - "&#aa00ffLT3"

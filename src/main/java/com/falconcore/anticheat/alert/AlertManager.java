@@ -114,6 +114,10 @@ public class AlertManager {
             String permission = manager.getAlertPermission();
             for (Player staff : Bukkit.getOnlinePlayers()) {
                 if (staff.hasPermission(permission)) {
+                    com.falconcore.survival.manager.PlayerData coreData = manager.getPlugin().getPlayerDataManager().get(staff.getUniqueId());
+                    if (coreData == null || !coreData.isStaffMode()) {
+                        continue;
+                    }
                     PlayerData staffData = manager.getPlayerData(staff.getUniqueId());
                     if (staffData == null || staffData.isAlertsEnabled()) {
                         for (Component comp : componentsToSend) {

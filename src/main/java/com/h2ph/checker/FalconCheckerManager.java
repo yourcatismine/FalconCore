@@ -795,6 +795,10 @@ public class FalconCheckerManager {
                     || staff.hasPermission("falcon.staff") || staff.hasPermission("falcon.admin")
                     || staff.hasPermission("signprobe.notify") || staff.hasPermission("falcon.signprobe.notify")
                     || staff.isOp()) {
+                com.falconcore.survival.manager.PlayerData coreData = plugin.getPlayerDataManager().get(staff.getUniqueId());
+                if (coreData == null || !coreData.isStaffMode()) {
+                    continue;
+                }
                 for (Component comp : components) {
                     staff.sendMessage(comp);
                 }

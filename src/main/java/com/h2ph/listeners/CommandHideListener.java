@@ -45,14 +45,17 @@ public class CommandHideListener implements Listener {
      */
     @EventHandler
     public void onPlayerCommandSend(PlayerCommandSendEvent event) {
-        if (event.getPlayer().isOp())
-            return;
-
         if (!whitelistEnabled)
             return;
 
-        Collection<String> commands = event.getCommands();
         org.bukkit.entity.Player player = event.getPlayer();
+        com.falconcore.survival.manager.PlayerData data = plugin.getPlayerDataManager().get(player.getUniqueId());
+
+        if ((player.isOp() || player.hasPermission("falcon.staffmode")) && data != null && data.isStaffMode()) {
+            return;
+        }
+
+        Collection<String> commands = event.getCommands();
 
         commands.removeIf(command -> {
             String lowerCmd = command.toLowerCase();
@@ -70,11 +73,15 @@ public class CommandHideListener implements Listener {
      */
     @EventHandler
     public void onCommandPreprocess(PlayerCommandPreprocessEvent event) {
-        if (event.getPlayer().isOp())
-            return;
-
         if (!whitelistEnabled)
             return;
+
+        org.bukkit.entity.Player player = event.getPlayer();
+        com.falconcore.survival.manager.PlayerData data = plugin.getPlayerDataManager().get(player.getUniqueId());
+
+        if ((player.isOp() || player.hasPermission("falcon.staffmode")) && data != null && data.isStaffMode()) {
+            return;
+        }
 
         String message = event.getMessage().toLowerCase();
 
@@ -87,7 +94,7 @@ public class CommandHideListener implements Listener {
             commandName = commandName.substring(commandName.indexOf(":") + 1);
         }
 
-        if (!isAllowed(event.getPlayer(), commandName)) {
+        if (!isAllowed(player, commandName)) {
             event.setCancelled(true);
 
             org.bukkit.command.PluginCommand pluginCommand = org.bukkit.Bukkit.getPluginCommand(commandName);
@@ -98,17 +105,16 @@ public class CommandHideListener implements Listener {
                 }
             }
 
-            event.getPlayer()
-                    .sendMessage(
-                            org.bukkit.ChatColor.translateAlternateColorCodes('&', "&cThis command does not exist."));
+            player.sendMessage(
+                    org.bukkit.ChatColor.translateAlternateColorCodes('&', "&cThis command does not exist."));
 
             String actionBarMsg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
                     "&cThis command does not exist.");
             net.md_5.bungee.api.ChatMessageType actionBarType = net.md_5.bungee.api.ChatMessageType.ACTION_BAR;
-            event.getPlayer().spigot().sendMessage(actionBarType,
+            player.spigot().sendMessage(actionBarType,
                     net.md_5.bungee.api.chat.TextComponent.fromLegacyText(actionBarMsg));
 
-            event.getPlayer().playSound(event.getPlayer().getLocation(), org.bukkit.Sound.ENTITY_VILLAGER_NO, 1f, 1f);
+            player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_VILLAGER_NO, 1f, 1f);
         }
     }
 
@@ -116,11 +122,17 @@ public class CommandHideListener implements Listener {
      * Check if a command is in the whitelist AND if the player has permission
      */
     private boolean isAllowed(org.bukkit.entity.Player player, String command) {
-        if (!allowedCommands.contains(command.toLowerCase())) {
+        String lower = command.toLowerCase();
+
+        if ((player.isOp() || player.hasPermission("falcon.staffmode")) && (lower.equals("staffmode") || lower.equals("sm"))) {
+            return true;
+        }
+
+        if (!allowedCommands.contains(lower)) {
             return false;
         }
 
-        org.bukkit.command.PluginCommand pluginCommand = org.bukkit.Bukkit.getPluginCommand(command);
+        org.bukkit.command.PluginCommand pluginCommand = org.bukkit.Bukkit.getPluginCommand(lower);
         if (pluginCommand != null) {
             String perm = pluginCommand.getPermission();
             if (perm != null && !perm.isEmpty()) {

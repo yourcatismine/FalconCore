@@ -51,6 +51,17 @@ public class Falcon extends JavaPlugin {
         return spawnerConfig;
     }
 
+    public void reloadSpawnerConfig() {
+        spawnerConfigFile = new java.io.File(getDataFolder(), "economy/spawner/config.yml");
+        if (!spawnerConfigFile.exists()) {
+            spawnerConfigFile.getParentFile().mkdirs();
+            saveResource("economy/spawner/config.yml", false);
+        }
+        if (spawnerConfigFile.exists()) {
+            spawnerConfig = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(spawnerConfigFile);
+        }
+    }
+
     private com.h2ph.afk.AFKManager afkManager;
     private org.bukkit.configuration.file.FileConfiguration survivalConfig;
     private com.h2ph.commands.admin.moderations.OffendPlugin offendPlugin;
@@ -83,6 +94,7 @@ public class Falcon extends JavaPlugin {
     private com.h2ph.managers.ScoreboardManager scoreboardManager;
     private com.h2ph.managers.TabListManager tabListManager;
     private com.h2ph.managers.NametagManager nametagManager;
+    private com.h2ph.managers.TierRankManager tierRankManager;
     private com.falconcore.survival.manager.VoidManager voidManager;
     private com.falconcore.survival.manager.PvPSafeZoneManager pvpSafeZoneManager;
     private com.falconcore.survival.manager.BlockRestorationManager blockRestorationManager;
@@ -92,9 +104,12 @@ public class Falcon extends JavaPlugin {
     private com.h2ph.gui.RespawnGearGUI respawnGearGUI;
     private com.h2ph.teams.TeamManager teamManager;
     private com.h2ph.teams.TeamInviteManager teamInviteManager;
+    private com.h2ph.teams.echest.TeamEnderChestManager teamEnderChestManager;
     private com.h2ph.managers.GamertagManager gamertagManager;
     private com.h2ph.managers.DamageManager damageManager;
     private com.h2ph.managers.InventoryWorthManager inventoryWorthManager;
+    private com.h2ph.managers.StashManager stashManager;
+    private com.falconcore.survival.collision.PlayerCollisionManager playerCollisionManager;
     private com.h2ph.commands.economy.BalanceCommand balanceCommand;
 
     private com.falconcore.survival.limiter.LimiterConfig limiterConfig;
@@ -107,10 +122,15 @@ public class Falcon extends JavaPlugin {
     private com.h2ph.managers.DiscordManager discordManager;
     private com.h2ph.checker.FalconCheckerManager checkerManager;
     private com.falconcore.anticheat.AntiCheatManager antiCheatManager;
+    private com.falconcore.survival.fakeplayers.FalconBotManager falconBotManager;
     private boolean luckPermsEnabled = false;
     
     public com.falconcore.anticheat.AntiCheatManager getAntiCheatManager() {
         return antiCheatManager;
+    }
+
+    public com.falconcore.survival.fakeplayers.FalconBotManager getFalconBotManager() {
+        return falconBotManager;
     }
 
     public com.falconcore.survival.manager.DiscordWebhookManager getDiscordWebhookManager() {
@@ -190,10 +210,6 @@ public class Falcon extends JavaPlugin {
 
         com.h2ph.listeners.CombatListener combatListener = new com.h2ph.listeners.CombatListener(this);
         getServer().getPluginManager().registerEvents(combatListener, this);
-        if (getCommand("testcombat") != null) {
-            getCommand("testcombat").setExecutor(combatListener);
-            getCommand("testcombat").setTabCompleter(combatListener);
-        }
         getServer().getPluginManager().registerEvents(new com.h2ph.listeners.SpawnListener(this), this);
         getServer().getPluginManager().registerEvents(new com.h2ph.listeners.AutoRTPListener(this), this);
 
@@ -522,6 +538,21 @@ public class Falcon extends JavaPlugin {
 
         getServer().getPluginManager().registerEvents(new com.h2ph.listeners.NightVisionListener(this), this);
 
+        com.h2ph.commands.admin.StaffModeCommand staffModeCommand = new com.h2ph.commands.admin.StaffModeCommand(this);
+        if (getCommand("staffmode") != null) {
+            getCommand("staffmode").setExecutor(staffModeCommand);
+            getCommand("staffmode").setTabCompleter(staffModeCommand);
+        }
+
+        this.stashManager = new com.h2ph.managers.StashManager(this);
+        getServer().getPluginManager().registerEvents(new com.h2ph.listeners.StashListener(this), this);
+
+        com.h2ph.commands.admin.SpawnStashCommand spawnStashCommand = new com.h2ph.commands.admin.SpawnStashCommand(this);
+        if (getCommand("spawnstash") != null) {
+            getCommand("spawnstash").setExecutor(spawnStashCommand);
+            getCommand("spawnstash").setTabCompleter(spawnStashCommand);
+        }
+
         getCommand("discord").setExecutor(new com.h2ph.commands.player.DiscordCommand(this));
 
         getCommand("store").setExecutor(new com.h2ph.commands.player.StoreCommand(this));
@@ -584,6 +615,8 @@ public class Falcon extends JavaPlugin {
 
         getServer().getPluginManager().registerEvents(new com.h2ph.listeners.HomeChatListener(this), this);
 
+        this.tierRankManager = new com.h2ph.managers.TierRankManager(this);
+
         this.scoreboardManager = new com.h2ph.managers.ScoreboardManager(this);
         this.scoreboardManager.setup();
 
@@ -591,6 +624,18 @@ public class Falcon extends JavaPlugin {
         this.tabListManager.setup();
 
         this.nametagManager = new com.h2ph.managers.NametagManager(this);
+
+        com.h2ph.commands.admin.LowtierCommand lowtierCommand = new com.h2ph.commands.admin.LowtierCommand(this);
+        if (getCommand("lowtier") != null) {
+            getCommand("lowtier").setExecutor(lowtierCommand);
+            getCommand("lowtier").setTabCompleter(lowtierCommand);
+        }
+        if (getCommand("tier") != null) {
+            getCommand("tier").setExecutor(lowtierCommand);
+            getCommand("tier").setTabCompleter(lowtierCommand);
+        }
+
+        this.playerCollisionManager = new com.falconcore.survival.collision.PlayerCollisionManager(this);
 
         com.h2ph.commands.admin.TabCommand tabCommand = new com.h2ph.commands.admin.TabCommand(this);
         getCommand("tab").setExecutor(tabCommand);
@@ -600,9 +645,11 @@ public class Falcon extends JavaPlugin {
 
         this.teamManager = new com.h2ph.teams.TeamManager(this);
         this.teamInviteManager = new com.h2ph.teams.TeamInviteManager(this);
+        this.teamEnderChestManager = new com.h2ph.teams.echest.TeamEnderChestManager(this);
 
         getServer().getPluginManager().registerEvents(new com.h2ph.listeners.TeamPvPListener(this), this);
         getServer().getPluginManager().registerEvents(new com.h2ph.listeners.TeamChatListener(this), this);
+        getServer().getPluginManager().registerEvents(new com.h2ph.teams.echest.TeamEnderChestListener(this), this);
 
         com.h2ph.commands.player.TeamCommand teamCommand = new com.h2ph.commands.player.TeamCommand(this);
         getCommand("team").setExecutor(teamCommand);
@@ -705,18 +752,13 @@ public class Falcon extends JavaPlugin {
         getServer().getPluginManager()
                 .registerEvents(new com.falconcore.survival.listeners.PlayerNameCacheListener(this), this);
 
-        spawnerConfigFile = new java.io.File(getDataFolder(), "economy/spawner/config.yml");
-        if (!spawnerConfigFile.exists()) {
-            spawnerConfigFile.getParentFile().mkdirs();
-            saveResource("economy/spawner/config.yml", false);
-        }
-        if (spawnerConfigFile.exists()) {
-            spawnerConfig = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(spawnerConfigFile);
-        }
+        reloadSpawnerConfig();
 
         this.spawnerEconomyHandler = new com.falconcore.survival.spawners.economy.EconomyHandler(this);
         this.spawnerManager = new com.falconcore.survival.spawners.storage.SpawnerManager(this);
         this.spawnerManager.loadSpawners();
+
+        this.falconBotManager = new com.falconcore.survival.fakeplayers.FalconBotManager(this);
 
         getServer().getPluginManager().registerEvents(new com.falconcore.survival.spawners.listeners.SpawnerListener(this), this);
 
@@ -789,7 +831,9 @@ public class Falcon extends JavaPlugin {
             try {
                 net.dv8tion.jda.api.entities.channel.concrete.TextChannel channel = jda.getTextChannelById(targetChannelId);
                 if (channel != null) {
-                    int online = Bukkit.getOnlinePlayers().size();
+                    int online = (int) Bukkit.getOnlinePlayers().stream()
+                            .filter(p -> falconBotManager == null || !falconBotManager.isBot(p.getUniqueId()))
+                            .count();
                     int max = Bukkit.getMaxPlayers();
                     int unique = Bukkit.getOfflinePlayers().length;
                     long uptimeMinutes = java.lang.management.ManagementFactory.getRuntimeMXBean().getUptime() / 60000L;
@@ -824,10 +868,13 @@ public class Falcon extends JavaPlugin {
     }
 
     private String replaceDiscordPlaceholders(String template) {
-        int playercount = Bukkit.getOnlinePlayers().size();
+        int playercount = (int) Bukkit.getOnlinePlayers().stream()
+                .filter(p -> falconBotManager == null || !falconBotManager.isBot(p.getUniqueId()))
+                .count();
         int bannedcount = 0;
         int mutecount = 0;
         int totalplayers = 0;
+
 
         try {
             if (getDatabaseManager() != null) {
@@ -883,6 +930,10 @@ public class Falcon extends JavaPlugin {
             }
         }
 
+        if (this.teamEnderChestManager != null) {
+            this.teamEnderChestManager.saveAllOnShutdown();
+        }
+
         if (this.inventoryWorthManager != null) {
             this.inventoryWorthManager.shutdown();
         }
@@ -933,6 +984,10 @@ public class Falcon extends JavaPlugin {
 
         if (this.bountyManager != null) {
             this.bountyManager.save();
+        }
+
+        if (this.falconBotManager != null) {
+            this.falconBotManager.despawnAll();
         }
 
         if (this.databaseManager != null) {
@@ -1042,6 +1097,10 @@ public class Falcon extends JavaPlugin {
         return nametagManager;
     }
 
+    public com.h2ph.managers.TierRankManager getTierRankManager() {
+        return tierRankManager;
+    }
+
     public com.falconcore.survival.survival.ChatFormatter getChatFormatter() {
         return chatFormatter;
     }
@@ -1078,12 +1137,20 @@ public class Falcon extends JavaPlugin {
         return teamManager;
     }
 
+    public com.h2ph.teams.echest.TeamEnderChestManager getTeamEnderChestManager() {
+        return teamEnderChestManager;
+    }
+
     public com.h2ph.teams.TeamInviteManager getTeamInviteManager() {
         return teamInviteManager;
     }
 
     public com.h2ph.managers.GamertagManager getGamertagManager() {
         return gamertagManager;
+    }
+
+    public com.h2ph.managers.StashManager getStashManager() {
+        return stashManager;
     }
 
     public com.falconcore.survival.limiter.LimiterConfig getLimiterConfig() {
@@ -1153,6 +1220,7 @@ public class Falcon extends JavaPlugin {
         saveResourceSafely("rtp/config.yml");
         saveResourceSafely("crates/keys/config.yml");
         saveResourceSafely("scoreboard/config.yml");
+        saveResourceSafely("survival/tierranks/config.yml");
         saveResourceSafely("survival/checker/config.yml");
         saveResourceSafely("messages/economy/balance.yml");
         saveResourceSafely("messages/economy/auction.yml");
@@ -1262,6 +1330,30 @@ public class Falcon extends JavaPlugin {
             loadSurvivalConfig();
         }
         return survivalConfig;
+    }
+
+    public com.falconcore.survival.collision.PlayerCollisionManager getPlayerCollisionManager() {
+        return playerCollisionManager;
+    }
+
+    public boolean isPlayerCollisionEnabled() {
+        return playerCollisionManager != null ? playerCollisionManager.isCollisionsEnabled() : getSurvivalConfig().getBoolean("enable-player-collisions", true);
+    }
+
+    public void applyPlayerCollision(org.bukkit.entity.Player player) {
+        if (playerCollisionManager != null) {
+            playerCollisionManager.applyToPlayer(player);
+        } else if (player != null && player.isOnline()) {
+            try {
+                player.setCollidable(getSurvivalConfig().getBoolean("enable-player-collisions", true));
+            } catch (Throwable ignored) {}
+        }
+    }
+
+    public void applyPlayerCollisionsAll() {
+        if (playerCollisionManager != null) {
+            playerCollisionManager.applyToAll();
+        }
     }
 
     private final java.util.Set<java.util.UUID> updateWriters = new java.util.HashSet<>();

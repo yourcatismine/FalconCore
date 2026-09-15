@@ -12,6 +12,7 @@ isolated_bonus: 0.5
 
 settings:
   enable: true # Requires Server Restart
+  debug: false # If true, saves debug log per player inside economy/spawner/debug/<playername>.txt
   require_silk_touch: true
   natural_spawners_virtual: false
   auto_save_interval: 6000

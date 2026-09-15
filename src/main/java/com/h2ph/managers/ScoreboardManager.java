@@ -165,10 +165,10 @@ public class ScoreboardManager implements Listener {
 
     private void startTask(Player player) {
         stopTask(player);
-        long delay = Math.abs(player.getUniqueId().hashCode() % 40);
+        long delay = Math.abs(player.getUniqueId().hashCode() % 20);
         ScheduledTask task = player.getScheduler().runAtFixedRate(plugin, (t) -> {
             updateScoreboard(player);
-        }, null, delay, 40L);
+        }, null, delay, 20L);
         tasks.put(player.getUniqueId(), task);
     }
 
@@ -520,6 +520,18 @@ public class ScoreboardManager implements Listener {
 
         if (text.contains("{region_ping}")) {
             text = text.replace("{region_ping}", String.valueOf(player.getPing()));
+        }
+
+        if (text.contains("{ping}")) {
+            text = text.replace("{ping}", String.valueOf(player.getPing()));
+        }
+
+        if (text.contains("{tps}")) {
+            text = text.replace("{tps}", String.valueOf(TabListManager.getLiveTPS()));
+        }
+
+        if (text.contains("{mspt}")) {
+            text = text.replace("{mspt}", String.valueOf(TabListManager.getLiveMSPT()));
         }
 
         if (text.contains("{gamertag}")) {

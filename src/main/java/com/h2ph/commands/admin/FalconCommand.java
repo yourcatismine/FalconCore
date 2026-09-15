@@ -46,6 +46,10 @@ public class FalconCommand implements CommandExecutor, TabCompleter {
             return handleReload(sender);
         }
 
+        if (sub.equals("fakeplayers") || sub.equals("fakeplayer") || sub.equals("fp") || sub.equals("bots")) {
+            return handleFakePlayers(sender, args);
+        }
+
         if (sub.equals("ac") || sub.equals("anticheat")) {
             if (plugin.getAntiCheatManager() != null && plugin.getAntiCheatManager().getCommand() != null) {
                 String[] subArgs = Arrays.copyOfRange(args, 1, args.length);
@@ -358,9 +362,342 @@ public class FalconCommand implements CommandExecutor, TabCompleter {
         }
 
         player.sendMessage(
-                "§cUnknown subcommand. Use reload, auction, order, rtpqueue, void, setafk, respawngear, limiter, crystal, anchor, pvpsafe, warps, shards, or checker.");
+                "§cUnknown subcommand. Use reload, fakeplayers, auction, order, rtpqueue, void, setafk, respawngear, limiter, crystal, anchor, pvpsafe, warps, shards, or checker.");
         player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_VILLAGER_NO, 1f, 1f);
         return true;
+    }
+
+    private boolean handleFakePlayers(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("falcon.fakeplayers") && !sender.hasPermission("falconfk.command") && !sender.hasPermission("falcon.admin")) {
+            sender.sendMessage("§cYou do not have permission to use this command.");
+            return true;
+        }
+
+        if (args.length < 2) {
+            sender.sendMessage("§cUsage: /falcon fakeplayers <summon|chat|ai|action|equip|rtp|despawn|list|reload> [args...]");
+            if (sender instanceof Player p) {
+                p.playSound(p.getLocation(), org.bukkit.Sound.ENTITY_VILLAGER_NO, 1f, 1f);
+            }
+            return true;
+        }
+
+        com.falconcore.survival.fakeplayers.FalconBotManager botManager = plugin.getFalconBotManager();
+        if (botManager == null) {
+            sender.sendMessage("§cFake players manager is not initialized.");
+            return true;
+        }
+
+        String action = args[1].toLowerCase();
+
+        switch (action) {
+            case "summon": {
+                if (!sender.hasPermission("falcon.fakeplayers") && !sender.hasPermission("falconfk.summon") && !sender.hasPermission("falcon.admin")) {
+                    sender.sendMessage("§cYou do not have permission to summon fake players.");
+                    return true;
+                }
+
+                int amount = 1;
+                String customName = null;
+                org.bukkit.World targetWorld = null;
+
+                if (args.length >= 3) {
+                    if (isInteger(args[2])) {
+                        amount = Math.max(1, Integer.parseInt(args[2]));
+                        if (args.length >= 4) {
+                            customName = args[3];
+                        }
+                    } else {
+                        customName = args[2];
+                    }
+                }
+
+                // Detect if any argument is a world name
+                for (int i = 2; i < args.length; i++) {
+                    org.bukkit.World w = Bukkit.getWorld(args[i]);
+                    if (w != null) {
+                        targetWorld = w;
+                        break;
+                    }
+                }
+
+                Player player = sender instanceof Player p ? p : null;
+                org.bukkit.Location targetLocation;
+                if (targetWorld != null) {
+                    targetLocation = targetWorld.getSpawnLocation().clone();
+                } else if (player != null) {
+                    targetLocation = player.getLocation().clone();
+                } else {
+                    org.bukkit.World defWorld = Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0);
+                    targetLocation = defWorld != null ? defWorld.getSpawnLocation().clone() : null;
+                }
+
+                int spawned = botManager.summonBots(targetLocation, amount, customName);
+                if (spawned <= 0) {
+                    sender.sendMessage("§cNo bots could be spawned.");
+                    return true;
+                }
+
+                sender.sendMessage("§aQueued §f" + spawned + " §afake bot(s) for gradual spawn in world '§f" + (targetLocation != null && targetLocation.getWorld() != null ? targetLocation.getWorld().getName() : "default") + "§a'.");
+                if (sender instanceof Player p) {
+                    p.playSound(p.getLocation(), org.bukkit.Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1f, 1f);
+                }
+                return true;
+            }
+
+            case "ai": {
+                if (!sender.hasPermission("falcon.fakeplayers") && !sender.hasPermission("falcon.admin")) {
+                    sender.sendMessage("§cYou do not have permission to modify bot AI.");
+                    return true;
+                }
+
+                if (args.length < 3) {
+                    sender.sendMessage("§cUsage: /falcon fakeplayers ai <all|botname> [on|off]");
+                    return true;
+                }
+
+                String target = args[2];
+                boolean enabled = args.length < 4 || !args[3].equalsIgnoreCase("off");
+
+                if (target.equalsIgnoreCase("all")) {
+                    int count = botManager.setAiEnabledAll(enabled);
+                    sender.sendMessage("§aAI " + (enabled ? "enabled" : "disabled") + " for §f" + count + " §afake bot(s).");
+                    return true;
+                }
+
+                if (!botManager.hasBot(target)) {
+                    sender.sendMessage("§cNo fake bot named '§f" + target + "§c' was found.");
+                    return true;
+                }
+
+                botManager.setAiEnabled(target, enabled);
+                sender.sendMessage("§7AI " + (enabled ? "§aenabled" : "§cdisabled") + " §7for fake bot '§f" + target + "§7'.");
+                return true;
+            }
+
+            case "action": {
+                if (!sender.hasPermission("falcon.fakeplayers") && !sender.hasPermission("falcon.admin")) {
+                    sender.sendMessage("§cYou do not have permission to modify bot actions.");
+                    return true;
+                }
+
+                if (args.length < 4) {
+                    sender.sendMessage("§cUsage: /falcon fakeplayers action <all|botname> <walk|mine|commands> [on|off]");
+                    return true;
+                }
+
+                String target = args[2];
+                String subAction = args[3].toLowerCase();
+                boolean enabled = args.length < 5 || !args[4].equalsIgnoreCase("off");
+
+                if (target.equalsIgnoreCase("all")) {
+                    int count = botManager.setActionEnabledAll(subAction, enabled);
+                    sender.sendMessage("§aAction '§f" + subAction + "§a' set to " + (enabled ? "§aON" : "§cOFF") + " for §f" + count + " §afake bot(s).");
+                    return true;
+                }
+
+                if (!botManager.hasBot(target)) {
+                    sender.sendMessage("§cNo fake bot named '§f" + target + "§c' was found.");
+                    return true;
+                }
+
+                boolean success = botManager.setActionEnabled(target, subAction, enabled);
+                if (success) {
+                    sender.sendMessage("§7Action '§f" + subAction + "§7' set to " + (enabled ? "§aON" : "§cOFF") + " for fake bot '§f" + target + "§7'.");
+                } else {
+                    sender.sendMessage("§cInvalid action. Available actions: walk, mine, commands");
+                }
+                return true;
+            }
+
+            case "equip": {
+                if (!sender.hasPermission("falcon.fakeplayers") && !sender.hasPermission("falcon.admin")) {
+                    sender.sendMessage("§cYou do not have permission to equip fake bots.");
+                    return true;
+                }
+
+                if (args.length < 3) {
+                    sender.sendMessage("§cUsage: /falcon fakeplayers equip <all|botname> [leather|iron|diamond|netherite|random]");
+                    return true;
+                }
+
+                String target = args[2];
+                String tier = args.length >= 4 ? args[3] : "iron";
+
+                if (target.equalsIgnoreCase("all")) {
+                    int count = botManager.equipAll(tier);
+                    sender.sendMessage("§aEquipped §f" + count + " §afake bot(s) with tier '§f" + tier + "§a'.");
+                    return true;
+                }
+
+                if (!botManager.hasBot(target)) {
+                    sender.sendMessage("§cNo fake bot named '§f" + target + "§c' was found.");
+                    return true;
+                }
+
+                boolean success = botManager.equipBot(target, tier);
+                if (success) {
+                    sender.sendMessage("§aEquipped fake bot '§f" + target + "§a' with tier '§f" + tier + "§a'.");
+                } else {
+                    sender.sendMessage("§cFailed to equip bot '§f" + target + "§c'.");
+                }
+                return true;
+            }
+
+            case "rtp": {
+                if (!sender.hasPermission("falcon.fakeplayers") && !sender.hasPermission("falcon.admin")) {
+                    sender.sendMessage("§cYou do not have permission to trigger bot RTP.");
+                    return true;
+                }
+
+                if (args.length < 3) {
+                    sender.sendMessage("§cUsage: /falcon fakeplayers rtp <all|botname>");
+                    return true;
+                }
+
+                String target = args[2];
+                if (target.equalsIgnoreCase("all")) {
+                    for (String name : botManager.getActiveBotNames()) {
+                        Player bot = Bukkit.getPlayer(name);
+                        if (bot != null && bot.isOnline()) {
+                            bot.performCommand("rtp");
+                        }
+                    }
+                    sender.sendMessage("§aTriggered RTP for all active fake bots.");
+                    return true;
+                }
+
+                Player bot = Bukkit.getPlayer(target);
+                if (bot == null || !bot.isOnline() || !botManager.hasBot(target)) {
+                    sender.sendMessage("§cNo online fake bot named '§f" + target + "§c' was found.");
+                    return true;
+                }
+
+                bot.performCommand("rtp");
+                sender.sendMessage("§aTriggered /rtp for fake bot '§f" + target + "§a'.");
+                return true;
+            }
+
+            case "chat": {
+                if (!sender.hasPermission("falcon.fakeplayers") && !sender.hasPermission("falconfk.chat") && !sender.hasPermission("falcon.admin")) {
+                    sender.sendMessage("§cYou do not have permission to control bot chat.");
+                    return true;
+                }
+
+                if (args.length < 3) {
+                    sender.sendMessage("§cUsage: /falcon fakeplayers chat <all|botname> [on|off|toggle]");
+                    return true;
+                }
+
+                String target = args[2];
+                String mode = args.length >= 4 ? args[3].toLowerCase() : "toggle";
+
+                if (target.equalsIgnoreCase("all")) {
+                    switch (mode) {
+                        case "on" -> {
+                            int updated = botManager.setChatEnabledAll(true);
+                            sender.sendMessage("§aChat enabled for §f" + updated + " §afake bot(s).");
+                        }
+                        case "off" -> {
+                            int updated = botManager.setChatEnabledAll(false);
+                            sender.sendMessage("§cChat disabled for §f" + updated + " §cfake bot(s).");
+                        }
+                        case "toggle" -> {
+                            int updated = botManager.toggleChatAll();
+                            sender.sendMessage("§eChat toggled for §f" + updated + " §efake bot(s).");
+                        }
+                        default -> sender.sendMessage("§cUsage: /falcon fakeplayers chat all [on|off|toggle]");
+                    }
+                    return true;
+                }
+
+                if (!botManager.hasBot(target)) {
+                    sender.sendMessage("§cNo fake bot named '§f" + target + "§c' was found.");
+                    return true;
+                }
+
+                boolean enabled;
+                switch (mode) {
+                    case "on" -> {
+                        botManager.setChatEnabled(target, true);
+                        enabled = true;
+                    }
+                    case "off" -> {
+                        botManager.setChatEnabled(target, false);
+                        enabled = false;
+                    }
+                    case "toggle" -> enabled = botManager.toggleChat(target);
+                    default -> {
+                        sender.sendMessage("§cUsage: /falcon fakeplayers chat " + target + " [on|off|toggle]");
+                        return true;
+                    }
+                }
+
+                sender.sendMessage("§7Chat " + (enabled ? "§aenabled" : "§cdisabled") + " §7for fake bot '§f" + target + "§7'.");
+                return true;
+            }
+
+            case "despawn": {
+                if (!sender.hasPermission("falcon.fakeplayers") && !sender.hasPermission("falconfk.despawn") && !sender.hasPermission("falcon.admin")) {
+                    sender.sendMessage("§cYou do not have permission to despawn fake players.");
+                    return true;
+                }
+
+                if (args.length < 3) {
+                    sender.sendMessage("§cUsage: /falcon fakeplayers despawn <all|botname>");
+                    return true;
+                }
+
+                if (args[2].equalsIgnoreCase("all")) {
+                    botManager.despawnAll();
+                    sender.sendMessage("§cDespawned all fake bots.");
+                    return true;
+                }
+
+                boolean removed = botManager.despawnBot(args[2]);
+                if (!removed) {
+                    sender.sendMessage("§cNo fake bot named '§f" + args[2] + "§c' was found.");
+                    return true;
+                }
+
+                sender.sendMessage("§aDespawned fake bot '§f" + args[2] + "§a'.");
+                return true;
+            }
+
+            case "list": {
+                List<String> activeNames = botManager.getActiveBotNames();
+                if (activeNames.isEmpty()) {
+                    sender.sendMessage("§7No fake bots are currently active.");
+                    return true;
+                }
+
+                sender.sendMessage("§6Active Fake Bots (" + activeNames.size() + "):");
+                for (String name : activeNames) {
+                    boolean chat = botManager.isChatEnabled(name);
+                    sender.sendMessage("§e- §f" + name + " §7(Chat: " + (chat ? "§aON" : "§cOFF") + "§7)");
+                }
+                return true;
+            }
+
+            case "reload": {
+                botManager.reloadPools();
+                sender.sendMessage("§aReloaded fake player names, message pools, and AI configuration.");
+                return true;
+            }
+
+            default: {
+                sender.sendMessage("§cUnknown subcommand. Use /falcon fakeplayers <summon|chat|ai|action|equip|rtp|despawn|list|reload>");
+                return true;
+            }
+        }
+    }
+
+    private static boolean isInteger(String input) {
+        try {
+            Integer.parseInt(input);
+            return true;
+        } catch (NumberFormatException ex) {
+            return false;
+        }
     }
 
     private String toSmallCaps(String input) {
@@ -384,6 +721,11 @@ public class FalconCommand implements CommandExecutor, TabCompleter {
 
         try {
             plugin.loadSurvivalConfig();
+            if (plugin.getPlayerCollisionManager() != null) {
+                plugin.getPlayerCollisionManager().loadConfig();
+            } else {
+                plugin.applyPlayerCollisionsAll();
+            }
 
             plugin.loadChatFilterConfig();
             if (plugin.getChatFilter() != null) {
@@ -428,6 +770,10 @@ public class FalconCommand implements CommandExecutor, TabCompleter {
 
             if (plugin.getKeyAllManager() != null) {
                 plugin.getKeyAllManager().loadConfig();
+            }
+
+            if (plugin.getTierRankManager() != null) {
+                plugin.getTierRankManager().loadConfig();
             }
 
             if (plugin.getScoreboardManager() != null) {
@@ -501,6 +847,12 @@ public class FalconCommand implements CommandExecutor, TabCompleter {
             if (plugin.getAntiCheatManager() != null) {
                 plugin.getAntiCheatManager().reload();
             }
+
+            if (plugin.getFalconBotManager() != null) {
+                plugin.getFalconBotManager().reloadPools();
+            }
+
+            plugin.reloadSpawnerConfig();
 
 
             long time = System.currentTimeMillis() - start;
@@ -713,11 +1065,59 @@ public class FalconCommand implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
             return Arrays
-                    .asList("reload", "auction", "order", "rtpqueue", "void", "setafk", "respawngear", "limiter",
+                    .asList("reload", "fakeplayers", "auction", "order", "rtpqueue", "void", "setafk", "respawngear", "limiter",
                             "crystal", "anchor", "pvpsafe", "warps", "shards", "ac")
                     .stream()
                     .filter(s -> s.startsWith(args[0].toLowerCase()))
                     .collect(Collectors.toList());
+        } else if (args[0].equalsIgnoreCase("fakeplayers") || args[0].equalsIgnoreCase("fakeplayer") || args[0].equalsIgnoreCase("fp") || args[0].equalsIgnoreCase("bots")) {
+            if (args.length == 2) {
+                return Arrays.asList("summon", "chat", "ai", "action", "equip", "rtp", "despawn", "list", "reload").stream()
+                        .filter(s -> s.startsWith(args[1].toLowerCase()))
+                        .collect(Collectors.toList());
+            } else if (args.length == 3) {
+                if (args[1].equalsIgnoreCase("chat") || args[1].equalsIgnoreCase("ai")
+                        || args[1].equalsIgnoreCase("action") || args[1].equalsIgnoreCase("equip")
+                        || args[1].equalsIgnoreCase("rtp") || args[1].equalsIgnoreCase("despawn")) {
+                    List<String> options = new ArrayList<>();
+                    if ("all".startsWith(args[2].toLowerCase())) {
+                        options.add("all");
+                    }
+                    if (plugin.getFalconBotManager() != null) {
+                        options.addAll(plugin.getFalconBotManager().getActiveBotNames().stream()
+                                .filter(name -> name.toLowerCase().startsWith(args[2].toLowerCase()))
+                                .toList());
+                    }
+                    return options;
+                } else if (args[1].equalsIgnoreCase("summon")) {
+                    return Arrays.asList("1", "2", "5", "10").stream()
+                            .filter(s -> s.startsWith(args[2].toLowerCase()))
+                            .collect(Collectors.toList());
+                }
+            } else if (args.length == 4) {
+                if (args[1].equalsIgnoreCase("chat")) {
+                    return Arrays.asList("on", "off", "toggle").stream()
+                            .filter(s -> s.startsWith(args[3].toLowerCase()))
+                            .collect(Collectors.toList());
+                } else if (args[1].equalsIgnoreCase("ai")) {
+                    return Arrays.asList("on", "off").stream()
+                            .filter(s -> s.startsWith(args[3].toLowerCase()))
+                            .collect(Collectors.toList());
+                } else if (args[1].equalsIgnoreCase("action")) {
+                    return Arrays.asList("walk", "mine", "commands").stream()
+                            .filter(s -> s.startsWith(args[3].toLowerCase()))
+                            .collect(Collectors.toList());
+                } else if (args[1].equalsIgnoreCase("equip")) {
+                    return Arrays.asList("leather", "iron", "diamond", "netherite", "random").stream()
+                            .filter(s -> s.startsWith(args[3].toLowerCase()))
+                            .collect(Collectors.toList());
+                }
+            } else if (args.length == 5 && args[1].equalsIgnoreCase("action")) {
+                return Arrays.asList("on", "off").stream()
+                        .filter(s -> s.startsWith(args[4].toLowerCase()))
+                        .collect(Collectors.toList());
+            }
+            return Collections.emptyList();
         } else if (args[0].equalsIgnoreCase("ac") || args[0].equalsIgnoreCase("anticheat")) {
             if (plugin.getAntiCheatManager() != null && plugin.getAntiCheatManager().getCommand() != null) {
                 String[] subArgs = Arrays.copyOfRange(args, 1, args.length);

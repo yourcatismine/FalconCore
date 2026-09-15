@@ -34,7 +34,7 @@ public class ChatFormatter implements Listener {
         Player player = event.getPlayer();
         
         com.falconcore.survival.manager.PlayerData data = plugin.getPlayerDataManager().get(player.getUniqueId());
-        if (data != null && data.isDisguised()) {
+        if (data != null && (data.isDisguised() || (data.isTeamChat() && data.getTeamId() != null))) {
             return;
         }
 
@@ -48,10 +48,14 @@ public class ChatFormatter implements Listener {
                     .replace("%message%", "%2$s");
             event.setFormat(translateColorCodes(format));
 
-            plugin.getDiscordWebhookManager().sendChatMessage(
-                    player.getName(),
-                    player.getUniqueId().toString(),
-                    event.getMessage());
+            if (plugin.getFalconBotManager() == null || 
+                    (!plugin.getFalconBotManager().isBot(player.getUniqueId()) && 
+                     !plugin.getFalconBotManager().isBot(player.getName()))) {
+                plugin.getDiscordWebhookManager().sendChatMessage(
+                        player.getName(),
+                        player.getUniqueId().toString(),
+                        event.getMessage());
+            }
             return;
         }
 
@@ -115,10 +119,14 @@ public class ChatFormatter implements Listener {
         }
         org.bukkit.Bukkit.getConsoleSender().spigot().sendMessage(finalMessage);
 
-        plugin.getDiscordWebhookManager().sendChatMessage(
-                player.getName(),
-                player.getUniqueId().toString(),
-                event.getMessage());
+        if (plugin.getFalconBotManager() == null || 
+                (!plugin.getFalconBotManager().isBot(player.getUniqueId()) && 
+                 !plugin.getFalconBotManager().isBot(player.getName()))) {
+            plugin.getDiscordWebhookManager().sendChatMessage(
+                    player.getName(),
+                    player.getUniqueId().toString(),
+                    event.getMessage());
+        }
     }
 
     private String translateColorCodes(String message) {

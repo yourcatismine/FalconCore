@@ -21,6 +21,9 @@ import org.bukkit.inventory.ItemStack;
 public class ProfileGUIListener implements Listener {
 
     private final Falcon plugin;
+    private final java.util.Set<java.util.UUID> skipCloseReturn = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final java.util.Map<java.util.UUID, OfflinePlayer> profileEnderChestViewers = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Map<java.util.UUID, OfflinePlayer> profileTeamEnderChestViewers = new java.util.concurrent.ConcurrentHashMap<>();
 
     public ProfileGUIListener(Falcon plugin) {
         this.plugin = plugin;
@@ -35,17 +38,27 @@ public class ProfileGUIListener implements Listener {
         boolean isProfileMain = topInv.getHolder() instanceof ProfileCommand.ProfileHolder;
         boolean isProfileHomes = topInv.getHolder() instanceof ProfileHomesGUI.ProfileHomesHolder;
         boolean isProfileInventory = topInv.getHolder() instanceof ProfileInventoryGUI.ProfileInventoryHolder;
+        boolean isProfileLogs = topInv.getHolder() instanceof ProfileLogsGUI.ProfileLogsHolder;
+        boolean isProfileAuction = topInv.getHolder() instanceof ProfileAuctionGUI.ProfileAuctionHolder;
+        boolean isProfileAuctionConfirm = topInv.getHolder() instanceof ProfileAuctionGUI.ProfileAuctionConfirmHolder;
+
+        if (!isProfileMain && !isProfileHomes && !isProfileLogs && !isProfileInventory && !isProfileAuction && !isProfileAuctionConfirm)
+            return;
 
         if (isProfileInventory) {
-            syncProfileInventory((ProfileInventoryGUI.ProfileInventoryHolder) topInv.getHolder(), topInv, player);
+            handleProfileInventoryClick(event, player);
             return;
         }
 
-        if (isProfileInventory)
+        if (isProfileAuction) {
+            handleProfileAuctionClick(event, player);
             return;
+        }
 
-        if (!isProfileMain && !isProfileHomes)
+        if (isProfileAuctionConfirm) {
+            handleProfileAuctionConfirmClick(event, player);
             return;
+        }
 
         if (event.getAction() == InventoryAction.COLLECT_TO_CURSOR) {
             event.setCancelled(true);
@@ -68,6 +81,8 @@ public class ProfileGUIListener implements Listener {
                 handleProfileMainClick(event, player);
             } else if (isProfileHomes) {
                 handleProfileHomesClick(event, player);
+            } else if (isProfileLogs) {
+                handleProfileLogsClick(event, player);
             }
         } else {
             if (event.isShiftClick()) {
@@ -76,59 +91,91 @@ public class ProfileGUIListener implements Listener {
         }
     }
 
-    private void syncProfileInventory(ProfileInventoryGUI.ProfileInventoryHolder holder, Inventory inv, Player viewer) {
-        Player targetPlayer = Bukkit.getPlayer(holder.getTargetPlayerUUID());
-        if (targetPlayer == null || !targetPlayer.isOnline())
-            return;
-
-        InventoryType type = targetPlayer.getOpenInventory().getTopInventory().getType();
-        if (type != InventoryType.CRAFTING && type != InventoryType.PLAYER) {
+    private void handleProfileInventoryClick(InventoryClickEvent event, Player player) {
+        Inventory topInv = event.getView().getTopInventory();
+        if (!(topInv.getHolder() instanceof ProfileInventoryGUI.ProfileInventoryHolder holder)) {
             return;
         }
 
-        plugin.getSchedulerAdapter().runEntityTaskLater(viewer, () -> {
-            InventoryType currentType = targetPlayer.getOpenInventory().getTopInventory().getType();
-            if (currentType != InventoryType.CRAFTING && currentType != InventoryType.PLAYER) {
-                return;
-            }
+        Player target = Bukkit.getPlayer(holder.getTargetPlayerUUID());
+        if (target == null || !target.isOnline()) {
+            event.setCancelled(true);
+            player.closeInventory();
+            return;
+        }
 
-            ItemStack[] storageItems = new ItemStack[27];
-            for (int i = 0; i < 27; i++) {
-                storageItems[i] = inv.getItem(i);
+        int rawSlot = event.getRawSlot();
+
+        // Separator slots (4-7 and 9-17) are protected
+        if ((rawSlot >= 4 && rawSlot <= 7) || (rawSlot >= 9 && rawSlot <= 17)) {
+            event.setCancelled(true);
+            return;
+        }
+
+        if (event.getAction() == InventoryAction.COLLECT_TO_CURSOR) {
+            event.setCancelled(true);
+            return;
+        }
+
+        holder.setLastInteractionTime(System.currentTimeMillis());
+
+        plugin.getSchedulerAdapter().runEntityTaskLater(target, () -> {
+            if (target.isOnline() && player.isOnline()) {
+                ProfileInventoryGUI.updateTargetFromGUI(topInv, target);
             }
-            targetPlayer.getInventory().setStorageContents(storageItems);
-            
-            ItemStack[] armorItems = new ItemStack[4];
-            for (int i = 0; i < 4; i++) {
-                ItemStack item = inv.getItem(27 + i);
-                armorItems[i] = item;
+        }, 1L);
+
+        plugin.getSchedulerAdapter().runEntityTaskLater(player, () -> {
+            if (player.isOnline()) {
+                player.updateInventory();
             }
-            targetPlayer.getInventory().setArmorContents(armorItems);
-            
-            ItemStack offhandItem = inv.getItem(31);
-            targetPlayer.getInventory().setItemInOffHand(offhandItem);
-            
-            targetPlayer.updateInventory();
         }, 1L);
     }
 
     @EventHandler
     public void onInventoryDrag(InventoryDragEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player))
+            return;
+
         Inventory topInv = event.getView().getTopInventory();
         boolean isProfileMain = topInv.getHolder() instanceof ProfileCommand.ProfileHolder;
         boolean isProfileHomes = topInv.getHolder() instanceof ProfileHomesGUI.ProfileHomesHolder;
         boolean isProfileInventory = topInv.getHolder() instanceof ProfileInventoryGUI.ProfileInventoryHolder;
+        boolean isProfileLogs = topInv.getHolder() instanceof ProfileLogsGUI.ProfileLogsHolder;
+        boolean isProfileAuction = topInv.getHolder() instanceof ProfileAuctionGUI.ProfileAuctionHolder;
+        boolean isProfileAuctionConfirm = topInv.getHolder() instanceof ProfileAuctionGUI.ProfileAuctionConfirmHolder;
 
-        if (isProfileInventory && event.getWhoClicked() instanceof Player player) {
-            syncProfileInventory((ProfileInventoryGUI.ProfileInventoryHolder) topInv.getHolder(), topInv, player);
+        if (!isProfileMain && !isProfileHomes && !isProfileLogs && !isProfileInventory && !isProfileAuction && !isProfileAuctionConfirm)
+            return;
+
+        if (isProfileAuction || isProfileAuctionConfirm) {
+            event.setCancelled(true);
             return;
         }
 
-        if (isProfileInventory)
-            return;
+        if (isProfileInventory) {
+            ProfileInventoryGUI.ProfileInventoryHolder holder = (ProfileInventoryGUI.ProfileInventoryHolder) topInv.getHolder();
+            Player target = Bukkit.getPlayer(holder.getTargetPlayerUUID());
+            if (target == null || !target.isOnline()) {
+                event.setCancelled(true);
+                return;
+            }
 
-        if (!isProfileMain && !isProfileHomes)
+            for (int slot : event.getRawSlots()) {
+                if ((slot >= 4 && slot <= 7) || (slot >= 9 && slot <= 17)) {
+                    event.setCancelled(true);
+                    return;
+                }
+            }
+
+            holder.setLastInteractionTime(System.currentTimeMillis());
+            plugin.getSchedulerAdapter().runEntityTaskLater(target, () -> {
+                if (target.isOnline() && player.isOnline()) {
+                    ProfileInventoryGUI.updateTargetFromGUI(topInv, target);
+                }
+            }, 1L);
             return;
+        }
 
         int topSize = topInv.getSize();
         for (int slot : event.getRawSlots()) {
@@ -157,6 +204,7 @@ public class ProfileGUIListener implements Listener {
             OfflinePlayer targetPlayer = holder.getTargetPlayer();
 
             if (targetPlayer != null) {
+                profileEnderChestViewers.put(player.getUniqueId(), targetPlayer);
                 com.h2ph.managers.EnderChestManager enderChestManager = plugin.getEnderChestManager();
                 String targetName = targetPlayer.getName() != null ? targetPlayer.getName() : "Unknown";
                 
@@ -196,6 +244,181 @@ public class ProfileGUIListener implements Listener {
                 }, 1L);
             }
         }
+
+        if (slot == 14) {
+            ProfileCommand.ProfileHolder holder = (ProfileCommand.ProfileHolder) event.getView().getTopInventory().getHolder();
+            OfflinePlayer targetPlayer = holder.getTargetPlayer();
+
+            if (targetPlayer != null) {
+                ProfileLogsGUI.open(player, targetPlayer, 0);
+            }
+        }
+
+        if (slot == 15) {
+            ProfileCommand.ProfileHolder holder = (ProfileCommand.ProfileHolder) event.getView().getTopInventory().getHolder();
+            OfflinePlayer targetPlayer = holder.getTargetPlayer();
+
+            if (targetPlayer != null) {
+                ProfileAuctionGUI.open(player, targetPlayer, ProfileAuctionGUI.Tab.ACTIVE, 0);
+            }
+        }
+
+        if (slot == 20) {
+            ProfileCommand.ProfileHolder holder = (ProfileCommand.ProfileHolder) event.getView().getTopInventory().getHolder();
+            OfflinePlayer targetPlayer = holder.getTargetPlayer();
+
+            if (targetPlayer != null) {
+                com.h2ph.teams.Team team = plugin.getTeamManager().getPlayerTeam(targetPlayer.getUniqueId());
+                if (team != null) {
+                    profileTeamEnderChestViewers.put(player.getUniqueId(), targetPlayer);
+                    skipCloseReturn.add(player.getUniqueId());
+                    plugin.getTeamEnderChestManager().open(player, team.getId(), team.getName());
+                } else {
+                    player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                            net.md_5.bungee.api.chat.TextComponent.fromLegacyText(Utils.formatColors("&cThis player is not part of any team.")));
+                    try {
+                        player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1f, 1f);
+                    } catch (Exception e) {
+                    }
+                }
+            }
+        }
+    }
+
+    private void handleProfileAuctionClick(InventoryClickEvent event, Player player) {
+        event.setCancelled(true);
+
+        Inventory topInv = event.getView().getTopInventory();
+        if (!(topInv.getHolder() instanceof ProfileAuctionGUI.ProfileAuctionHolder holder)) {
+            return;
+        }
+
+        Inventory clickedInv = event.getClickedInventory();
+        if (clickedInv == null || !clickedInv.equals(topInv)) {
+            return;
+        }
+
+        ItemStack current = event.getCurrentItem();
+        if (current != null && current.getType() != Material.AIR) {
+            player.playSound(player.getLocation(), Sound.BLOCK_TRIPWIRE_CLICK_ON, 1f, 1f);
+        }
+
+        OfflinePlayer targetPlayer = holder.getTargetPlayer();
+        if (targetPlayer == null) {
+            return;
+        }
+
+        int slot = event.getRawSlot();
+        int page = holder.getPage();
+        int totalPages = holder.getTotalPages();
+        ProfileAuctionGUI.Tab tab = holder.getTab();
+
+        if (slot >= 0 && slot < ProfileAuctionGUI.ITEMS_PER_PAGE) {
+            skipCloseReturn.add(player.getUniqueId());
+            ProfileAuctionGUI.handleItemAction(player, holder, slot, event.isLeftClick(), event.isRightClick());
+            return;
+        }
+
+        if (slot == 45) {
+            if (page > 0) {
+                skipCloseReturn.add(player.getUniqueId());
+                ProfileAuctionGUI.open(player, targetPlayer, tab, page - 1);
+            }
+        } else if (slot == 46) {
+            skipCloseReturn.add(player.getUniqueId());
+            ProfileAuctionGUI.open(player, targetPlayer, ProfileAuctionGUI.Tab.ACTIVE, 0);
+        } else if (slot == 47) {
+            skipCloseReturn.add(player.getUniqueId());
+            ProfileAuctionGUI.open(player, targetPlayer, ProfileAuctionGUI.Tab.EXPIRED, 0);
+        } else if (slot == 48) {
+            skipCloseReturn.add(player.getUniqueId());
+            ProfileAuctionGUI.open(player, targetPlayer, ProfileAuctionGUI.Tab.TRANSACTIONS, 0);
+        } else if (slot == 49) {
+            skipCloseReturn.add(player.getUniqueId());
+            ProfileAuctionGUI.open(player, targetPlayer, tab, page);
+        } else if (slot == 53) {
+            if (page < totalPages - 1) {
+                skipCloseReturn.add(player.getUniqueId());
+                ProfileAuctionGUI.open(player, targetPlayer, tab, page + 1);
+            }
+        }
+    }
+
+    private void handleProfileAuctionConfirmClick(InventoryClickEvent event, Player player) {
+        event.setCancelled(true);
+
+        Inventory topInv = event.getView().getTopInventory();
+        if (!(topInv.getHolder() instanceof ProfileAuctionGUI.ProfileAuctionConfirmHolder holder)) {
+            return;
+        }
+
+        Inventory clickedInv = event.getClickedInventory();
+        if (clickedInv == null || !clickedInv.equals(topInv)) {
+            return;
+        }
+
+        int slot = event.getRawSlot();
+        OfflinePlayer targetPlayer = holder.getTargetPlayer();
+        ProfileAuctionGUI.Tab tab = holder.getTab();
+        int page = holder.getPage();
+        Object obj = holder.getItemToDelete();
+
+        if (slot == 11) {
+            // Confirm (Green Glass Pane) -> Delete listing/transaction
+            if (obj instanceof AuctionItem ai) {
+                plugin.getAuctionController().getAuctionManager().removeItem(ai);
+            } else if (obj instanceof Transaction tx) {
+                plugin.getDatabaseManager().deleteAuctionTransaction(targetPlayer.getUniqueId(), tx.getTimestamp(), tx.getPrice());
+            }
+
+            player.playSound(player.getLocation(), Sound.BLOCK_LAVA_EXTINGUISH, 1f, 1f);
+            player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                    net.md_5.bungee.api.chat.TextComponent.fromLegacyText(Utils.formatColors("&cDeleted auction record!")));
+
+            skipCloseReturn.add(player.getUniqueId());
+            ProfileAuctionGUI.open(player, targetPlayer, tab, page);
+        } else if (slot == 15) {
+            // Cancel (Red Glass Pane) -> Return back to auction
+            player.playSound(player.getLocation(), Sound.BLOCK_TRIPWIRE_CLICK_ON, 1f, 1f);
+            player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                    net.md_5.bungee.api.chat.TextComponent.fromLegacyText(Utils.formatColors("&7Cancelled deletion.")));
+
+            skipCloseReturn.add(player.getUniqueId());
+            ProfileAuctionGUI.open(player, targetPlayer, tab, page);
+        }
+    }
+
+    private void handleProfileLogsClick(InventoryClickEvent event, Player player) {
+        int slot = event.getRawSlot();
+        if (!(event.getView().getTopInventory().getHolder() instanceof ProfileLogsGUI.ProfileLogsHolder holder)) {
+            return;
+        }
+
+        ItemStack current = event.getCurrentItem();
+        if (current != null && current.getType() != Material.AIR) {
+            player.playSound(player.getLocation(), Sound.BLOCK_TRIPWIRE_CLICK_ON, 1f, 1f);
+        }
+
+        OfflinePlayer targetPlayer = holder.getTargetPlayer();
+        int page = holder.getPage();
+        int totalPages = holder.getTotalPages();
+
+        if (slot == 45) {
+            if (page > 0) {
+                skipCloseReturn.add(player.getUniqueId());
+                ProfileLogsGUI.open(player, targetPlayer, page - 1);
+            }
+        } else if (slot == 49) {
+            if (targetPlayer != null) {
+                skipCloseReturn.add(player.getUniqueId());
+                ProfileLogsGUI.open(player, targetPlayer, page);
+            }
+        } else if (slot == 53) {
+            if (page < totalPages - 1) {
+                skipCloseReturn.add(player.getUniqueId());
+                ProfileLogsGUI.open(player, targetPlayer, page + 1);
+            }
+        }
     }
 
     private void handleProfileHomesClick(InventoryClickEvent event, Player player) {
@@ -221,6 +444,7 @@ public class ProfileGUIListener implements Listener {
                     Location homeLoc = homeManager.getHomeLocation(targetPlayer.getUniqueId(), homeNumber);
 
                     if (homeLoc != null) {
+                        skipCloseReturn.add(player.getUniqueId());
                         player.closeInventory();
                         
                         player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
@@ -254,28 +478,117 @@ public class ProfileGUIListener implements Listener {
             return;
 
         Inventory inv = event.getInventory();
+        org.bukkit.inventory.InventoryHolder holder = inv.getHolder();
         
-        if (inv.getHolder() instanceof ProfileInventoryGUI.ProfileInventoryHolder holder) {
-            Player targetPlayer = Bukkit.getPlayer(holder.getTargetPlayerUUID());
-            if (targetPlayer != null && targetPlayer.isOnline()) {
-                ItemStack[] storageItems = new ItemStack[27];
-                for (int i = 0; i < 27; i++) {
-                    storageItems[i] = inv.getItem(i);
+        // 1. Profile Inventory Sub-GUI
+        if (holder instanceof ProfileInventoryGUI.ProfileInventoryHolder invHolder) {
+            OfflinePlayer offlineTarget = Bukkit.getOfflinePlayer(invHolder.getTargetPlayerUUID());
+            plugin.getSchedulerAdapter().runEntityTaskLater(player, () -> {
+                if (player.isOnline()) {
+                    ProfileCommand.openProfileGUI(player, offlineTarget);
                 }
-                targetPlayer.getInventory().setStorageContents(storageItems);
-                
-                ItemStack[] armorItems = new ItemStack[4];
-                for (int i = 0; i < 4; i++) {
-                    ItemStack item = inv.getItem(27 + i);
-                    armorItems[i] = item;
-                }
-                targetPlayer.getInventory().setArmorContents(armorItems);
-                
-                ItemStack offhandItem = inv.getItem(31);
-                targetPlayer.getInventory().setItemInOffHand(offhandItem);
-                
-                targetPlayer.updateInventory();
+            }, 1L);
+            return;
+        }
+
+        // 2. Profile Homes Sub-GUI
+        if (holder instanceof ProfileHomesGUI.ProfileHomesHolder homesHolder) {
+            if (skipCloseReturn.remove(player.getUniqueId())) {
+                return;
+            }
+
+            OfflinePlayer targetPlayer = homesHolder.getTargetPlayer();
+            if (targetPlayer != null) {
+                plugin.getSchedulerAdapter().runEntityTaskLater(player, () -> {
+                    if (player.isOnline()) {
+                        ProfileCommand.openProfileGUI(player, targetPlayer);
+                    }
+                }, 1L);
+            }
+            return;
+        }
+
+        // 3. Profile AntiCheat Logs Sub-GUI
+        if (holder instanceof ProfileLogsGUI.ProfileLogsHolder logsHolder) {
+            if (skipCloseReturn.remove(player.getUniqueId())) {
+                return;
+            }
+
+            OfflinePlayer targetPlayer = logsHolder.getTargetPlayer();
+            if (targetPlayer != null) {
+                plugin.getSchedulerAdapter().runEntityTaskLater(player, () -> {
+                    if (player.isOnline()) {
+                        ProfileCommand.openProfileGUI(player, targetPlayer);
+                    }
+                }, 1L);
+            }
+            return;
+        }
+
+        // 4. Ender Chest Sub-GUI opened via Profile
+        if (holder instanceof com.h2ph.gui.EnderChestGUI.EnderChestHolder) {
+            OfflinePlayer targetPlayer = profileEnderChestViewers.remove(player.getUniqueId());
+            if (targetPlayer != null) {
+                plugin.getSchedulerAdapter().runEntityTaskLater(player, () -> {
+                    if (player.isOnline()) {
+                        ProfileCommand.openProfileGUI(player, targetPlayer);
+                    }
+                }, 1L);
+            }
+            return;
+        }
+
+        // 5. Profile Auction Sub-GUI
+        if (holder instanceof ProfileAuctionGUI.ProfileAuctionHolder auctionHolder) {
+            if (skipCloseReturn.remove(player.getUniqueId())) {
+                return;
+            }
+
+            OfflinePlayer targetPlayer = auctionHolder.getTargetPlayer();
+            if (targetPlayer != null) {
+                plugin.getSchedulerAdapter().runEntityTaskLater(player, () -> {
+                    if (player.isOnline()) {
+                        ProfileCommand.openProfileGUI(player, targetPlayer);
+                    }
+                }, 1L);
+            }
+            return;
+        }
+
+        // 6. Profile Auction Confirm Sub-GUI
+        if (holder instanceof ProfileAuctionGUI.ProfileAuctionConfirmHolder confirmHolder) {
+            if (skipCloseReturn.remove(player.getUniqueId())) {
+                return;
+            }
+
+            OfflinePlayer targetPlayer = confirmHolder.getTargetPlayer();
+            if (targetPlayer != null) {
+                plugin.getSchedulerAdapter().runEntityTaskLater(player, () -> {
+                    if (player.isOnline()) {
+                        ProfileAuctionGUI.open(player, targetPlayer, confirmHolder.getTab(), confirmHolder.getPage());
+                    }
+                }, 1L);
+            }
+            return;
+        }
+
+        // 7. Team Ender Chest Sub-GUI opened via Profile
+        if (holder instanceof com.h2ph.teams.echest.TeamEnderChestHolder) {
+            OfflinePlayer targetPlayer = profileTeamEnderChestViewers.remove(player.getUniqueId());
+            if (targetPlayer != null) {
+                plugin.getSchedulerAdapter().runEntityTaskLater(player, () -> {
+                    if (player.isOnline()) {
+                        ProfileCommand.openProfileGUI(player, targetPlayer);
+                    }
+                }, 1L);
             }
         }
+    }
+
+    @EventHandler
+    public void onPlayerQuit(org.bukkit.event.player.PlayerQuitEvent event) {
+        skipCloseReturn.remove(event.getPlayer().getUniqueId());
+        profileEnderChestViewers.remove(event.getPlayer().getUniqueId());
+        profileTeamEnderChestViewers.remove(event.getPlayer().getUniqueId());
     }
 }

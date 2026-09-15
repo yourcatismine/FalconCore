@@ -45,6 +45,7 @@ public abstract class Check {
         }
 
         com.h2ph.commands.admin.moderations.SusCommand.recordViolation(player, name, subCheck, newVl);
+        manager.logViolation(player, name, subCheck, newVl, player.getPing(), debugInfo);
 
         if (newVl >= alertVl) {
             manager.getAlertManager().sendAlert(player, this, subCheck, newVl, debugInfo);

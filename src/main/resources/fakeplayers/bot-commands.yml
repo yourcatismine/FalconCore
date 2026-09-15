@@ -1,0 +1,25 @@
+# ==========================================================
+# FalconCore - Fake Player Simulated Commands Pool
+# Format: List of commands (without leading '/') that bots can randomly run
+# {random_player} will be replaced with a random online player's name
+# ==========================================================
+
+commands:
+  - "rtp"
+  - "stats"
+  - "rules"
+  - "discord"
+  - "bal"
+  - "balance"
+  - "whereami"
+  - "ah"
+  - "media"
+  - "store"
+  - "sethome base"
+  - "home base"
+  - "msg {random_player} hey"
+  - "msg {random_player} what's up"
+  - "msg {random_player} making a base rn"
+  - "msg {random_player} mining diamonds"
+  - "msg {random_player} gg"
+  - "msg {random_player} nice"

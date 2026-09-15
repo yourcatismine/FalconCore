@@ -85,7 +85,7 @@ public class HideNameCommand implements CommandExecutor, Listener {
         return true;
     }
 
-    @EventHandler(priority = EventPriority.HIGH)
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onChat(AsyncPlayerChatEvent evt) {
         if (plugin.getPlayerDataManager().get(evt.getPlayer().getUniqueId()).isNameHidden()) {
             String message = evt.getMessage().trim();

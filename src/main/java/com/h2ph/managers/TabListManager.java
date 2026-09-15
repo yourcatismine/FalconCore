@@ -144,10 +144,10 @@ public class TabListManager implements Listener {
 
     private void startTask(Player player) {
         stopTask(player);
-        long delay = Math.abs(player.getUniqueId().hashCode() % 40);
+        long delay = Math.abs(player.getUniqueId().hashCode() % 20);
         ScheduledTask task = player.getScheduler().runAtFixedRate(plugin, (t) -> {
             updateTabList(player);
-        }, null, delay, 40L);
+        }, null, delay, 20L);
         tasks.put(player.getUniqueId(), task);
     }
 
@@ -262,6 +262,11 @@ public class TabListManager implements Listener {
                     displayName = prefix + playerDisplayName;
                 } else {
                     displayName = playerDisplayName;
+                }
+
+                String tierTag = plugin.getTierRankManager() != null ? plugin.getTierRankManager().getPlayerFormattedTier(onlineUUID) : null;
+                if (tierTag != null && !tierTag.isEmpty()) {
+                    displayName = displayName + " " + tierTag;
                 }
 
                 String lastDisplayName = playerNames.get(onlineUUID);
@@ -496,6 +501,69 @@ public class TabListManager implements Listener {
         return null;
     }
 
+    private static volatile long cachedTpsLong = 20;
+    private static volatile long cachedMsptLong = 50;
+    private static volatile long lastMetricsUpdateTime = 0;
+
+    public static void updateMetricsCache() {
+        long now = System.currentTimeMillis();
+        if (now - lastMetricsUpdateTime < 500) {
+            return;
+        }
+        lastMetricsUpdateTime = now;
+
+        double tps = 20.0;
+        try {
+            double[] tpsArr = Bukkit.getTPS();
+            if (tpsArr != null && tpsArr.length > 0) {
+                tps = tpsArr[0];
+            }
+        } catch (Throwable ignored) {
+            try {
+                Object server = Bukkit.getServer();
+                java.lang.reflect.Method method = server.getClass().getMethod("getTPS");
+                Object res = method.invoke(server);
+                if (res instanceof double[]) {
+                    double[] tpsArr = (double[]) res;
+                    if (tpsArr.length > 0) tps = tpsArr[0];
+                }
+            } catch (Throwable ignored2) {}
+        }
+        tps = Math.min(20.0, Math.max(0.0, tps));
+        cachedTpsLong = Math.round(tps);
+
+        double mspt = 50.0;
+        try {
+            mspt = Bukkit.getAverageTickTime();
+        } catch (Throwable ignored) {
+            try {
+                Object server = Bukkit.getServer();
+                java.lang.reflect.Method method = server.getClass().getMethod("getAverageTickTime");
+                Object res = method.invoke(server);
+                if (res instanceof Number) {
+                    mspt = ((Number) res).doubleValue();
+                } else if (res instanceof double[]) {
+                    double[] arr = (double[]) res;
+                    if (arr.length > 0) mspt = arr[0];
+                }
+            } catch (Throwable ignored2) {
+                mspt = 1000.0 / Math.max(tps, 1.0);
+            }
+        }
+        mspt = Math.max(0, Math.min(mspt, 1000.0));
+        cachedMsptLong = Math.round(mspt);
+    }
+
+    public static long getLiveTPS() {
+        updateMetricsCache();
+        return cachedTpsLong;
+    }
+
+    public static long getLiveMSPT() {
+        updateMetricsCache();
+        return cachedMsptLong;
+    }
+
     private String parsePlaceholders(Player player, String text) {
         if (text == null || text.isEmpty())
             return "";
@@ -505,11 +573,11 @@ public class TabListManager implements Listener {
         }
 
         if (text.contains("{tps}")) {
-            text = text.replace("{tps}", String.format("%.2f", getServerTPS()));
+            text = text.replace("{tps}", String.valueOf(getLiveTPS()));
         }
 
         if (text.contains("{mspt}")) {
-            text = text.replace("{mspt}", String.format("%.2f", getServerMSPT()));
+            text = text.replace("{mspt}", String.valueOf(getLiveMSPT()));
         }
 
         if (text.contains("%online%")) {
@@ -521,63 +589,6 @@ public class TabListManager implements Listener {
         }
 
         return color(text);
-    }
-
-    private double getServerTPS() {
-        try {
-            Object server = Bukkit.getServer();
-            java.lang.reflect.Method method = server.getClass().getMethod("recentTps");
-            Object result = method.invoke(server);
-
-            if (result instanceof double[]) {
-                double[] tpsArray = (double[]) result;
-                if (tpsArray.length > 0) {
-                    double tps = tpsArray[0];
-                    return Math.min(tps, 20.0);
-                }
-            }
-        } catch (Exception e) {
-            try {
-                Object server = Bukkit.getServer();
-                java.lang.reflect.Method method = server.getClass().getMethod("getAverageTickTime");
-                Object result = method.invoke(server);
-
-                if (result instanceof double[]) {
-                    double[] avgTickTime = (double[]) result;
-                    if (avgTickTime.length > 0) {
-                        double tickTimeMs = avgTickTime[0];
-                        double tps = 1000.0 / Math.max(tickTimeMs, 50.0);
-                        return Math.min(tps, 20.0);
-                    }
-                }
-            } catch (Exception ex) {
-            }
-        }
-        return 20.0;
-    }
-
-    private double getServerMSPT() {
-        try {
-            Object server = Bukkit.getServer();
-            java.lang.reflect.Method method = server.getClass().getMethod("getAverageTickTime");
-            Object result = method.invoke(server);
-
-            if (result instanceof double[]) {
-                double[] avgTickTime = (double[]) result;
-                if (avgTickTime.length > 0) {
-                    double mspt = avgTickTime[0];
-                    return Math.max(0, Math.min(mspt, 100.0));
-                }
-            }
-        } catch (Exception e) {
-            try {
-                double tps = getServerTPS();
-                double mspt = 1000.0 / Math.max(tps, 0.01);
-                return Math.min(mspt, 100.0);
-            } catch (Exception ex) {
-            }
-        }
-        return 50.0;
     }
 
     /**

@@ -192,6 +192,14 @@
             <version>2.5.0</version>
             <scope>provided</scope>
         </dependency>
+
+        <!-- Netty (Provided by server) -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-all</artifactId>
+            <version>4.1.97.Final</version>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
 
     <build>

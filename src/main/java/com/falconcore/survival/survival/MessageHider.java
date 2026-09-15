@@ -40,21 +40,11 @@ public class MessageHider implements Listener {
     }
 
     /**
-     * Hides "Player joined the game"
+     * Gamerule check on player join
      */
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
-        event.setJoinMessage(null);
-
         setGamerule(event.getPlayer().getWorld());
-    }
-
-    /**
-     * Hides "Player left the game"
-     */
-    @EventHandler
-    public void onPlayerQuit(PlayerQuitEvent event) {
-        event.setQuitMessage(null);
     }
 
     /**

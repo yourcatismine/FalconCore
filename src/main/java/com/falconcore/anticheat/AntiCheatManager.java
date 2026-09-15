@@ -236,6 +236,31 @@ public class AntiCheatManager {
         });
     }
 
+    public void logViolation(Player player, String checkName, String subCheck, double vl, int ping, String details) {
+        if (player == null || plugin.getDatabaseManager() == null) return;
+        plugin.getDatabaseManager().logAntiCheatViolation(
+                player.getUniqueId(),
+                player.getName(),
+                checkName,
+                subCheck,
+                vl,
+                ping,
+                details,
+                System.currentTimeMillis()
+        );
+    }
+
+    public void getViolationsAsync(UUID uuid, int limit, java.util.function.Consumer<List<com.falconcore.anticheat.data.AntiCheatLogEntry>> callback) {
+        if (uuid == null || plugin.getDatabaseManager() == null) {
+            callback.accept(Collections.emptyList());
+            return;
+        }
+        plugin.getSchedulerAdapter().runTaskAsync(() -> {
+            List<com.falconcore.anticheat.data.AntiCheatLogEntry> logs = plugin.getDatabaseManager().getAntiCheatViolations(uuid, limit);
+            plugin.getSchedulerAdapter().runTask(() -> callback.accept(logs));
+        });
+    }
+
     public Falcon getPlugin() { return plugin; }
     public AntiCheatCommand getCommand() { return command; }
     public AlertManager getAlertManager() { return alertManager; }

@@ -116,6 +116,59 @@ public class ProfileCommand implements CommandExecutor, TabCompleter {
         }
         inv.setItem(13, chest);
         
+        ItemStack profileHead = new ItemStack(Material.PLAYER_HEAD);
+        org.bukkit.inventory.meta.SkullMeta headMeta = (org.bukkit.inventory.meta.SkullMeta) profileHead.getItemMeta();
+        if (headMeta != null) {
+            headMeta.setOwningPlayer(targetPlayer);
+            headMeta.setDisplayName(Utils.formatColors("&dᴘʀᴏꜰɪʟᴇ"));
+            headMeta.setLore(List.of(
+                    Utils.formatColors("&fClick to view anticheat logs"),
+                    Utils.formatColors("&7View all recorded violations")
+            ));
+            profileHead.setItemMeta(headMeta);
+        }
+        inv.setItem(14, profileHead);
+
+        ItemStack auctionItem = new ItemStack(Material.GOLD_BLOCK);
+        ItemMeta auctionMeta = auctionItem.getItemMeta();
+        if (auctionMeta != null) {
+            auctionMeta.setDisplayName(Utils.formatColors("&dᴀᴜᴄᴛɪᴏɴ"));
+            auctionMeta.setLore(List.of(
+                    Utils.formatColors("&fClick to view auction listings & history"),
+                    Utils.formatColors("&7Active, expired, and transactions")
+            ));
+            auctionItem.setItemMeta(auctionMeta);
+        }
+        inv.setItem(15, auctionItem);
+
+        // Slot 20: Team Enderchest (under Purple Bed at slot 11)
+        com.h2ph.Falcon falcon = com.h2ph.Falcon.getInstance();
+        com.h2ph.teams.Team team = falcon != null ? falcon.getTeamManager().getPlayerTeam(targetPlayer.getUniqueId()) : null;
+        if (team != null) {
+            ItemStack teamEchest = new ItemStack(Material.ENDER_CHEST);
+            ItemMeta tMeta = teamEchest.getItemMeta();
+            if (tMeta != null) {
+                tMeta.setDisplayName(Utils.formatColors("&dᴛᴇᴀᴍ ᴇɴᴅᴇʀᴄʜᴇѕᴛ"));
+                tMeta.setLore(List.of(
+                        Utils.formatColors("&fClick to view team enderchest"),
+                        Utils.formatColors("&7Team: &f" + team.getName())
+                ));
+                teamEchest.setItemMeta(tMeta);
+            }
+            inv.setItem(20, teamEchest);
+        } else {
+            ItemStack noTeamBarrier = new ItemStack(Material.BARRIER);
+            ItemMeta bMeta = noTeamBarrier.getItemMeta();
+            if (bMeta != null) {
+                bMeta.setDisplayName(Utils.formatColors("&cᴛᴇᴀᴍ ᴇɴᴅᴇʀᴄʜᴇѕᴛ"));
+                bMeta.setLore(List.of(
+                        Utils.formatColors("&7This player is not part of any team.")
+                ));
+                noTeamBarrier.setItemMeta(bMeta);
+            }
+            inv.setItem(20, noTeamBarrier);
+        }
+        
         viewer.openInventory(inv);
     }
 

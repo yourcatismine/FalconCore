@@ -1,0 +1,44 @@
+# ==========================================================
+# FalconCore - Fake Player Bot AI Configuration
+# ==========================================================
+
+ai:
+  # All survival behaviors are enabled automatically on summon
+  enabled: true
+  
+  # Movement & Walking settings
+  movement:
+    enabled: true
+    wander_radius: 14
+    walk_speed: 0.35
+
+  # Mining & Block Interaction settings
+  mining:
+    enabled: true
+    search_radius: 8
+
+  # Farming & Agriculture settings
+  farming:
+    enabled: true
+    search_radius: 8
+
+  # Selling & Economy settings (Vault Money Gain)
+  selling:
+    enabled: true
+    min_earn: 25.0
+    max_earn: 180.0
+
+  # Combat & Self-Defense
+  combat:
+    enabled: true
+
+  # Simulated survival command usage
+  commands:
+    enabled: true
+    min_delay_seconds: 60
+    max_delay_seconds: 180
+
+  # Equipment settings (Leather, Iron, Diamond, Netherite, Random)
+  equipment:
+    auto_equip: true
+    default_tier: "random"

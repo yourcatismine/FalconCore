@@ -167,6 +167,28 @@ public class DatabaseManager {
                     ")";
             stmt.execute(enderchestTable);
 
+            String teamEnderchestTable = "CREATE TABLE IF NOT EXISTS team_enderchest (" +
+                    "team_id VARCHAR(36) PRIMARY KEY, " +
+                    "contents LONGTEXT, " +
+                    "last_updated BIGINT" +
+                    ")";
+            stmt.execute(teamEnderchestTable);
+
+            String anticheatViolationsTable = "CREATE TABLE IF NOT EXISTS anticheat_violations (" +
+                    "id INT AUTO_INCREMENT PRIMARY KEY, " +
+                    "uuid VARCHAR(36) NOT NULL, " +
+                    "player_name VARCHAR(16) NOT NULL, " +
+                    "check_name VARCHAR(64) NOT NULL, " +
+                    "sub_check VARCHAR(64) NOT NULL, " +
+                    "vl DOUBLE NOT NULL, " +
+                    "ping INT NOT NULL, " +
+                    "details TEXT, " +
+                    "timestamp BIGINT NOT NULL, " +
+                    "INDEX (uuid), " +
+                    "INDEX (timestamp)" +
+                    ")";
+            stmt.execute(anticheatViolationsTable);
+
             String sellHistoryTable = "CREATE TABLE IF NOT EXISTS sell_history (" +
                     "uuid VARCHAR(36) NOT NULL, " +
                     "item VARCHAR(64) NOT NULL, " +

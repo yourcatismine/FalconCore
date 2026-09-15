@@ -40,12 +40,11 @@ public class BaltopCommand implements CommandExecutor, Listener {
     private final Map<UUID, Long> refreshCooldowns = new ConcurrentHashMap<>();
     private final Set<UUID> pendingLoads = ConcurrentHashMap.newKeySet();
 
-    // Cache base skull item so meta.setOwningPlayer / Bukkit.getOfflinePlayer is only called once per UUID ever
     private static final Map<UUID, ItemStack> baseHeadCache = new ConcurrentHashMap<>();
 
     private volatile List<PlayerDataManager.LeaderboardEntry> cachedEntries = null;
     private volatile long lastCacheTime = 0;
-    private static final long CACHE_DURATION = 15000; // 15 seconds cache
+    private static final long CACHE_DURATION = 30000;
 
     private FileConfiguration config;
     private File configFile;
@@ -128,7 +127,7 @@ public class BaltopCommand implements CommandExecutor, Listener {
     private void loadDataAsync(Player player, int page, boolean forceRefresh) {
         UUID playerUuid = player.getUniqueId();
         if (!pendingLoads.add(playerUuid)) {
-            return; // Already loading for this player
+            return;
         }
 
         plugin.getSchedulerAdapter().runTaskAsync(() -> {
@@ -141,7 +140,13 @@ public class BaltopCommand implements CommandExecutor, Listener {
                 long now = System.currentTimeMillis();
 
                 if (forceRefresh || cachedEntries == null || (now - lastCacheTime >= CACHE_DURATION)) {
-                    allEntries = plugin.getPlayerDataManager().getTopMoney(10000);
+                    if (plugin.getDatabaseManager() != null && plugin.getDatabaseManager().isConnected()) {
+                        allEntries = plugin.getDatabaseManager().getTopMoney(2000);
+                    } else if (plugin.getPlayerDataManager() != null) {
+                        allEntries = plugin.getPlayerDataManager().getTopMoney(2000);
+                    } else {
+                        allEntries = new ArrayList<>();
+                    }
                     cachedEntries = allEntries;
                     lastCacheTime = now;
                 } else {
@@ -157,7 +162,6 @@ public class BaltopCommand implements CommandExecutor, Listener {
                 PlayerDataManager.LeaderboardEntry selfEntry = null;
                 int selfRank = -1;
 
-                // Single O(N) pass to filter search, assign original ranks, and find player's self rank
                 for (int i = 0; i < allEntries.size(); i++) {
                     PlayerDataManager.LeaderboardEntry entry = allEntries.get(i);
                     int currentRank = i + 1;
@@ -185,14 +189,12 @@ public class BaltopCommand implements CommandExecutor, Listener {
                 int startIndex = (finalPage - 1) * itemsPerPage;
                 int endIndex = Math.min(startIndex + itemsPerPage, totalPlayers);
 
-                // Build head items completely asynchronously
                 List<ItemStack> items = new ArrayList<>();
                 for (int i = startIndex; i < endIndex; i++) {
                     RankedEntry re = rankedEntries.get(i);
                     items.add(createHeadItem(re.entry, re.rank));
                 }
 
-                // Build self head completely asynchronously
                 double balance;
                 String rankDisplay;
                 if (selfEntry != null) {
@@ -209,7 +211,6 @@ public class BaltopCommand implements CommandExecutor, Listener {
 
                 ItemStack selfHead = createSelfHeadItem(player, balance, rankDisplay);
 
-                // Pre-build GUI completely asynchronously
                 String title = ChatColor.translateAlternateColorCodes('&', "&8ᴍᴏѕᴛ ᴍᴏɴᴇʏ (page " + finalPage + ")");
                 Inventory gui = Bukkit.createInventory(null, 54, title);
 
@@ -229,16 +230,13 @@ public class BaltopCommand implements CommandExecutor, Listener {
                 gui.setItem(49, createKeyItem(Material.EMERALD, "&aᴍᴏѕᴛ ᴍᴏɴᴇʏ", "&fClick to refresh"));
                 gui.setItem(50, createKeyItem(Material.OAK_SIGN, "&aѕᴇᴀʀᴄʜ", "&fClick to search for players"));
 
-                // Dispatch to player's Folia Entity Thread safely
                 plugin.getSchedulerAdapter().runEntityTask(player, () -> {
                     if (!player.isOnline()) return;
 
                     playerPages.put(playerUuid, finalPage);
 
-                    // Check if player already has a Baltop GUI open
                     String currentTitle = player.getOpenInventory().getTitle();
                     if (currentTitle != null && currentTitle.startsWith(ChatColor.translateAlternateColorCodes('&', "&8ᴍᴏѕᴛ ᴍᴏɴᴇʏ"))) {
-                        // If same page, update contents directly without flicker
                         if (currentTitle.equals(title)) {
                             player.getOpenInventory().getTopInventory().setContents(gui.getContents());
                             return;
@@ -258,9 +256,9 @@ public class BaltopCommand implements CommandExecutor, Listener {
     private ItemStack createHeadItem(PlayerDataManager.LeaderboardEntry entry, int rank) {
         ItemStack head = null;
         if (entry.uuid != null) {
-            ItemStack base = baseHeadCache.get(entry.uuid);
-            if (base != null) {
-                head = base.clone();
+            ItemStack cachedBase = baseHeadCache.get(entry.uuid);
+            if (cachedBase != null) {
+                head = cachedBase.clone();
             }
         }
 
@@ -269,8 +267,15 @@ public class BaltopCommand implements CommandExecutor, Listener {
             SkullMeta meta = (SkullMeta) head.getItemMeta();
             if (meta != null) {
                 try {
-                    OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(entry.uuid);
-                    meta.setOwningPlayer(offlinePlayer);
+                    if (entry.uuid != null) {
+                        Player online = Bukkit.getPlayer(entry.uuid);
+                        if (online != null) {
+                            meta.setOwningPlayer(online);
+                        } else {
+                            OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(entry.uuid);
+                            meta.setOwningPlayer(offlinePlayer);
+                        }
+                    }
                     head.setItemMeta(meta);
                     if (entry.uuid != null) {
                         baseHeadCache.put(entry.uuid, head.clone());
@@ -294,12 +299,26 @@ public class BaltopCommand implements CommandExecutor, Listener {
     }
 
     private ItemStack createSelfHeadItem(Player player, double balance, String rankDisplay) {
-        ItemStack selfHead = new ItemStack(Material.PLAYER_HEAD);
-        SkullMeta selfMeta = (SkullMeta) selfHead.getItemMeta();
+        ItemStack selfHead = null;
+        ItemStack cachedBase = baseHeadCache.get(player.getUniqueId());
+        if (cachedBase != null) {
+            selfHead = cachedBase.clone();
+        }
+
+        if (selfHead == null) {
+            selfHead = new ItemStack(Material.PLAYER_HEAD);
+            SkullMeta selfMeta = (SkullMeta) selfHead.getItemMeta();
+            if (selfMeta != null) {
+                try {
+                    selfMeta.setOwningPlayer(player);
+                    selfHead.setItemMeta(selfMeta);
+                    baseHeadCache.put(player.getUniqueId(), selfHead.clone());
+                } catch (Exception ignored) {}
+            }
+        }
+
+        ItemMeta selfMeta = selfHead.getItemMeta();
         if (selfMeta != null) {
-            try {
-                selfMeta.setOwningPlayer(player);
-            } catch (Exception ignored) {}
             selfMeta.setDisplayName(ChatColor.translateAlternateColorCodes('&', "&a" + player.getName()));
             List<String> selfLore = new ArrayList<>();
             selfLore.add(ChatColor.translateAlternateColorCodes('&',
@@ -352,8 +371,7 @@ public class BaltopCommand implements CommandExecutor, Listener {
         } else if (event.getSlot() == 49 && item.getType() == Material.EMERALD) {
             long now = System.currentTimeMillis();
             long last = refreshCooldowns.getOrDefault(player.getUniqueId(), 0L);
-            if (now - last < 2000) {
-                // Cooldown debounce: 2 seconds to avoid spamming database / task queue
+            if (now - last < 1500) {
                 return;
             }
             refreshCooldowns.put(player.getUniqueId(), now);

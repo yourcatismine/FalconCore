@@ -314,7 +314,7 @@ public class NametagManager implements Listener {
         }
     }
 
-    private void processNametagFor(Player target, boolean forceCreate) {
+    public void processNametagFor(Player target, boolean forceCreate) {
         if (!target.isOnline()) return;
         com.falconcore.survival.manager.PlayerData pd = (fmtHasMoney || fmtHasShards || fmtHasTeam)
                 ? plugin.getPlayerDataManager().get(target.getUniqueId()) : null;
@@ -338,6 +338,12 @@ public class NametagManager implements Listener {
         String[] realParsed = parseFormat(target, format, realPrefix, realName, pd);
         String realPrefixPart = realParsed[0];
         String realSuffixPart = realParsed[1];
+
+        String tierTag = plugin.getTierRankManager() != null ? plugin.getTierRankManager().getPlayerFormattedTier(target.getUniqueId()) : null;
+        if (tierTag != null && !tierTag.isEmpty()) {
+            realSuffixPart = realSuffixPart.isEmpty() ? " " + tierTag : realSuffixPart + " " + tierTag;
+        }
+
         String realTeamName = createTeamName(weight, realName);
         NamedTextColor realTeamColor = getLastColor(realPrefixPart);
 
@@ -349,6 +355,9 @@ public class NametagManager implements Listener {
             String[] disguiseParsed = parseFormat(target, format, disguisePrefix, disguiseName, pd);
             disguisePrefixPart = disguiseParsed[0];
             disguiseSuffixPart = disguiseParsed[1];
+            if (tierTag != null && !tierTag.isEmpty()) {
+                disguiseSuffixPart = disguiseSuffixPart.isEmpty() ? " " + tierTag : disguiseSuffixPart + " " + tierTag;
+            }
             disguiseTeamName = createTeamName(weight, disguiseName);
             disguiseTeamColor = getLastColor(disguisePrefixPart);
         }
@@ -545,12 +554,16 @@ public class NametagManager implements Listener {
         Component prefixComp = LegacyComponentSerializer.legacySection().deserialize(prefixPart);
         Component suffixComp = LegacyComponentSerializer.legacySection().deserialize(suffixPart);
 
+        WrapperPlayServerTeams.CollisionRule collisionRule = plugin.isPlayerCollisionEnabled()
+                ? WrapperPlayServerTeams.CollisionRule.ALWAYS
+                : WrapperPlayServerTeams.CollisionRule.NEVER;
+
         WrapperPlayServerTeams.ScoreBoardTeamInfo teamInfo = new WrapperPlayServerTeams.ScoreBoardTeamInfo(
                 Component.text(teamName),
                 prefixComp,
                 suffixComp,
                 WrapperPlayServerTeams.NameTagVisibility.ALWAYS,
-                WrapperPlayServerTeams.CollisionRule.NEVER,
+                collisionRule,
                 teamColor,
                 WrapperPlayServerTeams.OptionData.NONE
         );

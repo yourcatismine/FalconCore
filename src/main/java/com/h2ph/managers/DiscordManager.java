@@ -70,6 +70,9 @@ public class DiscordManager extends ListenerAdapter {
                 if (falcon.getVanishManager() != null && falcon.getVanishManager().isVanished(player.getUniqueId())) {
                     continue;
                 }
+                if (falcon.getFalconBotManager() != null && falcon.getFalconBotManager().isBot(player.getUniqueId())) {
+                    continue;
+                }
             }
             count++;
 

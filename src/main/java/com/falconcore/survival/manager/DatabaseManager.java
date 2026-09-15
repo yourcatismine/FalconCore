@@ -8,6 +8,7 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import com.falconcore.survival.spawners.storage.SpawnerData;
 import com.falconcore.survival.spawners.mob.SpawnerType;
+import com.falconcore.anticheat.data.AntiCheatLogEntry;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -499,6 +500,28 @@ public class DatabaseManager {
                     "INDEX time_idx (placed_time)" +
                     ")";
             s.execute(temporaryBlocksTable);
+
+            String teamEnderchestTable = "CREATE TABLE IF NOT EXISTS team_enderchest (" +
+                    "team_id VARCHAR(36) PRIMARY KEY," +
+                    "contents LONGTEXT," +
+                    "last_updated BIGINT" +
+                    ")";
+            s.execute(teamEnderchestTable);
+
+            String anticheatViolationsTable = "CREATE TABLE IF NOT EXISTS anticheat_violations (" +
+                    "id INT AUTO_INCREMENT PRIMARY KEY," +
+                    "uuid VARCHAR(36) NOT NULL," +
+                    "player_name VARCHAR(16) NOT NULL," +
+                    "check_name VARCHAR(64) NOT NULL," +
+                    "sub_check VARCHAR(64) NOT NULL," +
+                    "vl DOUBLE NOT NULL," +
+                    "ping INT NOT NULL," +
+                    "details TEXT," +
+                    "timestamp BIGINT NOT NULL," +
+                    "INDEX uuid_idx (uuid)," +
+                    "INDEX timestamp_idx (timestamp)" +
+                    ")";
+            s.execute(anticheatViolationsTable);
 
         } catch (SQLException e) {
         }
@@ -2106,5 +2129,112 @@ public class DatabaseManager {
             }
         } catch (Exception ignored) {}
         return set;
+    }
+
+    public void saveTeamEnderChest(String teamId, String contentsBase64) {
+        if (flatfileMode) {
+            yamlStorage.saveTeamEnderChest(teamId, contentsBase64);
+            return;
+        }
+        if (!isConnected() || teamId == null) return;
+        String query = "REPLACE INTO team_enderchest (team_id, contents, last_updated) VALUES (?, ?, ?)";
+        try (Connection conn = getConnection(); PreparedStatement ps = conn.prepareStatement(query)) {
+            ps.setString(1, teamId);
+            ps.setString(2, contentsBase64 != null ? contentsBase64 : "");
+            ps.setLong(3, System.currentTimeMillis());
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.SEVERE, "Failed to save team enderchest to database for team: " + teamId, e);
+        }
+    }
+
+    public String loadTeamEnderChest(String teamId) {
+        if (flatfileMode) {
+            return yamlStorage.loadTeamEnderChest(teamId);
+        }
+        if (!isConnected() || teamId == null) return null;
+        String query = "SELECT contents FROM team_enderchest WHERE team_id = ?";
+        try (Connection conn = getConnection(); PreparedStatement ps = conn.prepareStatement(query)) {
+            ps.setString(1, teamId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getString("contents");
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.SEVERE, "Failed to load team enderchest from database for team: " + teamId, e);
+        }
+        return null;
+    }
+
+    public void deleteTeamEnderChest(String teamId) {
+        if (flatfileMode) {
+            yamlStorage.deleteTeamEnderChest(teamId);
+            return;
+        }
+        if (!isConnected() || teamId == null) return;
+        String query = "DELETE FROM team_enderchest WHERE team_id = ?";
+        try (Connection conn = getConnection(); PreparedStatement ps = conn.prepareStatement(query)) {
+            ps.setString(1, teamId);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.SEVERE, "Failed to delete team enderchest from database for team: " + teamId, e);
+        }
+    }
+
+    public void logAntiCheatViolation(UUID uuid, String playerName, String checkName, String subCheck,
+                                      double vl, int ping, String details, long timestamp) {
+        if (flatfileMode) {
+            yamlStorage.logAntiCheatViolation(uuid, playerName, checkName, subCheck, vl, ping, details, timestamp);
+            return;
+        }
+        if (!isConnected() || uuid == null) return;
+        plugin.getSchedulerAdapter().runTaskAsync(() -> {
+            String query = "INSERT INTO anticheat_violations (uuid, player_name, check_name, sub_check, vl, ping, details, timestamp) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+            try (Connection conn = getConnection(); PreparedStatement ps = conn.prepareStatement(query)) {
+                ps.setString(1, uuid.toString());
+                ps.setString(2, playerName != null ? playerName : "Unknown");
+                ps.setString(3, checkName != null ? checkName : "Unknown");
+                ps.setString(4, subCheck != null ? subCheck : "Unknown");
+                ps.setDouble(5, vl);
+                ps.setInt(6, ping);
+                ps.setString(7, details != null ? details : "");
+                ps.setLong(8, timestamp);
+                ps.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to insert anticheat violation log for " + playerName, e);
+            }
+        });
+    }
+
+    public List<AntiCheatLogEntry> getAntiCheatViolations(UUID uuid, int limit) {
+        if (flatfileMode) {
+            return yamlStorage.getAntiCheatViolations(uuid, limit);
+        }
+        List<AntiCheatLogEntry> list = new ArrayList<>();
+        if (!isConnected() || uuid == null) return list;
+        String query = "SELECT * FROM anticheat_violations WHERE uuid = ? ORDER BY timestamp DESC LIMIT ?";
+        try (Connection conn = getConnection(); PreparedStatement ps = conn.prepareStatement(query)) {
+            ps.setString(1, uuid.toString());
+            ps.setInt(2, limit > 0 ? limit : 100);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(new AntiCheatLogEntry(
+                            uuid,
+                            rs.getString("player_name"),
+                            rs.getString("check_name"),
+                            rs.getString("sub_check"),
+                            rs.getDouble("vl"),
+                            rs.getInt("ping"),
+                            rs.getString("details"),
+                            rs.getLong("timestamp")
+                    ));
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to query anticheat violations for " + uuid, e);
+        }
+        return list;
     }
 }

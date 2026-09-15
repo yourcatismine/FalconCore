@@ -204,6 +204,10 @@ public class TeamManager {
         
         teamCache.remove(teamId);
 
+        if (plugin.getTeamEnderChestManager() != null) {
+            plugin.getTeamEnderChestManager().closeAllForTeam(teamId, com.falconcore.survival.orders.Utils.formatColors("&cYour team was disbanded."));
+        }
+
         for (Player online : Bukkit.getOnlinePlayers()) {
             com.falconcore.survival.manager.PlayerData data = plugin.getPlayerDataManager().get(online.getUniqueId());
             if (data != null && teamId.equals(data.getTeamId())) {
@@ -216,6 +220,7 @@ public class TeamManager {
             if (isFlatfileMode()) {
                 getYamlStorage().deleteTeam(teamId);
                 getYamlStorage().deleteAllTeamMembers(teamId);
+                getYamlStorage().deleteTeamEnderChest(teamId);
                 return;
             }
             try (Connection conn = dbManager.getConnection()) {
@@ -230,6 +235,10 @@ public class TeamManager {
                     }
                     try (PreparedStatement stmt = conn
                             .prepareStatement("UPDATE player_stats SET team = NULL WHERE team = ?")) {
+                        stmt.setString(1, teamId);
+                        stmt.executeUpdate();
+                    }
+                    try (PreparedStatement stmt = conn.prepareStatement("DELETE FROM team_enderchest WHERE team_id = ?")) {
                         stmt.setString(1, teamId);
                         stmt.executeUpdate();
                     }
@@ -295,6 +304,14 @@ public class TeamManager {
         String previousRole = data != null ? data.getTeamRole() : null;
         
         syncTeamId(memberUuid, null, null);
+
+        Player onlineMember = Bukkit.getPlayer(memberUuid);
+        if (onlineMember != null && onlineMember.isOnline()) {
+            if (onlineMember.getOpenInventory().getTopInventory().getHolder() instanceof com.h2ph.teams.echest.TeamEnderChestHolder) {
+                onlineMember.closeInventory();
+                onlineMember.sendMessage(com.falconcore.survival.orders.Utils.formatColors("&cYou are no longer in the team."));
+            }
+        }
         
         plugin.getSchedulerAdapter().runTaskAsync(() -> {
             if (isFlatfileMode()) {

@@ -38,30 +38,33 @@ public class HomeCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        String target = args[0];
-        Integer index = null;
-
-        try {
-            int num = Integer.parseInt(target);
-            if (num >= 1 && num <= HomeGUI.HOME_COUNT) {
-                index = num;
-            }
-        } catch (NumberFormatException ignored) {
-        }
+        String target = String.join(" ", args).trim();
+        Integer index = manager.getHomeIndexByName(player.getUniqueId(), target);
 
         if (index == null) {
-            index = manager.getHomeIndexByName(player.getUniqueId(), target);
+            try {
+                int num = Integer.parseInt(args[0]);
+                if (num >= 1 && num <= HomeGUI.HOME_COUNT) {
+                    index = num;
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+
+        if (index == null && args.length > 1) {
+            index = manager.getHomeIndexByName(player.getUniqueId(), args[0]);
         }
 
         if (index != null && index >= 3 && !player.hasPermission("falcon.home." + index) && !player.hasPermission("falcon.home.all")) {
-            String storeMsg = HomeGUI.color("&fBuy &dꜰᴀʟᴄᴏɴ&f in /store for more homes");
+            String storeMsg = HomeGUI.getLockedHomeMessage(plugin);
             player.sendMessage(storeMsg);
             player.sendActionBar(LegacyComponentSerializer.legacyAmpersand().deserialize(storeMsg));
             return true;
         }
 
         if (index == null || !manager.hasHome(player.getUniqueId(), index)) {
-            HomeGUI.open(player, plugin);
+            player.sendMessage(HomeGUI.color("&cThat home does not exist."));
+            player.sendActionBar(LegacyComponentSerializer.legacyAmpersand().deserialize(HomeGUI.color("&cThat home does not exist.")));
             return true;
         }
 
@@ -76,30 +79,45 @@ public class HomeCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        if (!(sender instanceof Player player) || args.length != 1) {
+        if (!(sender instanceof Player player) || args.length == 0) {
             return Collections.emptyList();
         }
 
         HomeManager manager = plugin.getHomeManager();
         Map<Integer, HomeManager.HomeEntry> homes = manager.getHomes(player.getUniqueId());
-        List<String> completions = new ArrayList<>();
+        List<String> homeNames = new ArrayList<>();
 
         for (int i = 1; i <= HomeGUI.HOME_COUNT; i++) {
             HomeManager.HomeEntry entry = homes.get(i);
             if (entry != null) {
                 if (entry.name() != null && !entry.name().isEmpty()) {
-                    completions.add(entry.name());
+                    homeNames.add(entry.name());
                 } else {
-                    completions.add(String.valueOf(i));
+                    homeNames.add(String.valueOf(i));
                 }
             }
         }
 
         List<String> result = new ArrayList<>();
-        String current = args[0].toLowerCase();
-        for (String s : completions) {
-            if (s.toLowerCase().startsWith(current)) {
-                result.add(s);
+        if (args.length == 1) {
+            String current = args[0].toLowerCase();
+            for (String s : homeNames) {
+                if (s.toLowerCase().startsWith(current)) {
+                    result.add(s);
+                }
+            }
+        } else {
+            String prefix = String.join(" ", java.util.Arrays.copyOf(args, args.length - 1)).toLowerCase();
+            String currentArg = args[args.length - 1].toLowerCase();
+
+            for (String s : homeNames) {
+                String lower = s.toLowerCase();
+                if (lower.startsWith(prefix + " ")) {
+                    String remainder = s.substring(prefix.length() + 1);
+                    if (remainder.toLowerCase().startsWith(currentArg)) {
+                        result.add(remainder);
+                    }
+                }
             }
         }
 

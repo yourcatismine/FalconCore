@@ -38,6 +38,7 @@ public class PlayerData {
     private boolean vanished = false;
     private boolean combatLogged = false;
     private boolean teamChat = false;
+    private boolean staffMode = false;
     private String pendingKickTeamName = null;
     private boolean nameHidden = false;
     private boolean disguised = false;
@@ -47,6 +48,7 @@ public class PlayerData {
     private String originalPrimaryGroup = null;
     private java.util.List<String> originalGroups = null;
     private String originalPrefix = null;
+    private String tierRank = null;
     private String ip;
     private final java.util.List<String> historyList = new java.util.ArrayList<>();
     private static final int MAX_HISTORY_SIZE = 500;
@@ -234,21 +236,31 @@ public class PlayerData {
     }
 
     public boolean hasActiveShardBooster() {
+        if (shardBoosterExpiry > 0 && shardBoosterExpiry <= System.currentTimeMillis()) {
+            shardBoosterExpiry = 0;
+        }
         return shardBoosterExpiry > System.currentTimeMillis();
     }
 
     public long getShardBoosterExpiry() {
+        if (shardBoosterExpiry > 0 && shardBoosterExpiry <= System.currentTimeMillis()) {
+            shardBoosterExpiry = 0;
+        }
         return shardBoosterExpiry;
     }
 
     public void setShardBoosterExpiry(long expiryMillis) {
-        this.shardBoosterExpiry = expiryMillis;
+        this.shardBoosterExpiry = Math.max(0, expiryMillis);
     }
 
     public long getShardBoosterRemainingSeconds() {
         if (!hasActiveShardBooster())
             return 0;
-        return (shardBoosterExpiry - System.currentTimeMillis()) / 1000L;
+        return Math.max(0, (shardBoosterExpiry - System.currentTimeMillis()) / 1000L);
+    }
+
+    public void clearShardBooster() {
+        this.shardBoosterExpiry = 0;
     }
 
     private boolean hideChat = false;
@@ -574,6 +586,14 @@ public class PlayerData {
         this.teamChat = teamChat;
     }
 
+    public boolean isStaffMode() {
+        return staffMode;
+    }
+
+    public void setStaffMode(boolean staffMode) {
+        this.staffMode = staffMode;
+    }
+
     public boolean isCombatLogged() {
         return combatLogged;
     }
@@ -832,6 +852,14 @@ public class PlayerData {
         while (this.historyList.size() > MAX_HISTORY_SIZE) {
             this.historyList.remove(0);
         }
+    }
+
+    public String getTierRank() {
+        return tierRank;
+    }
+
+    public void setTierRank(String tierRank) {
+        this.tierRank = tierRank;
     }
 
     public static class TeamInvite {

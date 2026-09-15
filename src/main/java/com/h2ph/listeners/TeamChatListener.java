@@ -25,7 +25,7 @@ public class TeamChatListener implements Listener {
         this.teamManager = plugin.getTeamManager();
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
     public void onTeamChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
         PlayerData data = plugin.getPlayerDataManager().get(player.getUniqueId());
@@ -43,6 +43,9 @@ public class TeamChatListener implements Listener {
         }
 
         String message = event.getMessage();
+        if (player.hasPermission("falcon.chat.color")) {
+            message = Utils.formatColors(message);
+        }
         String format = Utils.formatColors("&d[TEAM]&7 " + player.getName() + ":&f " + message);
 
         Set<UUID> members = teamManager.getTeamMemberUuids(team.getId());

@@ -278,6 +278,7 @@ public class ToolCommand implements CommandExecutor, TabCompleter {
         }
 
         meta.getPersistentDataContainer().set(ToolsManager.BOOSTER_KEY, PersistentDataType.BYTE, (byte) 1);
+        meta.getPersistentDataContainer().set(ToolsManager.REMAINING_KEY, PersistentDataType.LONG, timerSec);
         long expiryTimestamp = System.currentTimeMillis() + (timerSec * 1000L);
         meta.getPersistentDataContainer().set(ToolsManager.EXPIRY_KEY, PersistentDataType.LONG, expiryTimestamp);
 
