@@ -6,7 +6,10 @@ import com.falconcore.survival.manager.PlayerData;
 import com.falconcore.survival.manager.PlayerDataManager;
 import com.falconcore.survival.spawners.storage.SpawnerData;
 import com.falconcore.survival.spawners.mob.SpawnerType;
+import com.falconcore.survival.storage.YamlFlatfileStorage;
+import com.falconcore.survival.death.DeathRecord;
 import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -45,6 +48,7 @@ public class YamlFlatfileStorage {
     private final File teamEnderchestsFolder;
     private final File enderchestFolder;
     private final File anticheatLogsFolder;
+    private final File deathRecordsFolder;
     private final File sellHistoryFolder;
     private final File categoryDataFolder;
 
@@ -84,6 +88,7 @@ public class YamlFlatfileStorage {
         this.teamEnderchestsFolder = mkdirs("server/teams/enderchests");
         this.enderchestFolder = mkdirs("server/enderchest");
         this.anticheatLogsFolder = mkdirs("server/anticheat/logs");
+        this.deathRecordsFolder = mkdirs("server/death_records");
         this.sellHistoryFolder = mkdirs("server/sell_history");
         this.categoryDataFolder = mkdirs("server/category_data");
 
@@ -738,30 +743,74 @@ public class YamlFlatfileStorage {
 
     
 
+    private final Map<String, List<PlayerDataManager.LeaderboardEntry>> cachedLeaderboards = new ConcurrentHashMap<>();
+    private final Map<String, Long> lastLeaderboardUpdates = new ConcurrentHashMap<>();
+    private static final long LEADERBOARD_CACHE_TTL = 30_000L;
+
     public List<PlayerDataManager.LeaderboardEntry> getTopByField(String field, int limit) {
+        return getTopByField(field, limit, false);
+    }
+
+    public List<PlayerDataManager.LeaderboardEntry> getTopByField(String field, int limit, boolean forceRefresh) {
+        String key = field.toLowerCase();
+        long now = System.currentTimeMillis();
+        List<PlayerDataManager.LeaderboardEntry> cached = cachedLeaderboards.get(key);
+        Long lastUpdate = lastLeaderboardUpdates.get(key);
+
+        if (!forceRefresh && cached != null && lastUpdate != null && (now - lastUpdate < LEADERBOARD_CACHE_TTL)) {
+            return cached.size() > limit ? new ArrayList<>(cached.subList(0, limit)) : new ArrayList<>(cached);
+        }
+
+        // If called from the main server thread, never perform synchronous file I/O over 1,000+ files!
+        if (Bukkit.isPrimaryThread()) {
+            plugin.getSchedulerAdapter().runTaskAsync(() -> rebuildLeaderboardAsync(key));
+            if (cached != null) {
+                return cached.size() > limit ? new ArrayList<>(cached.subList(0, limit)) : new ArrayList<>(cached);
+            }
+            return new ArrayList<>();
+        }
+
+        List<PlayerDataManager.LeaderboardEntry> entries = rebuildLeaderboardAsync(key);
+        return entries.size() > limit ? new ArrayList<>(entries.subList(0, limit)) : new ArrayList<>(entries);
+    }
+
+    private List<PlayerDataManager.LeaderboardEntry> rebuildLeaderboardAsync(String fieldKey) {
         Map<UUID, PlayerDataManager.LeaderboardEntry> entryMap = new HashMap<>();
         File[] files = playerStatsFolder.listFiles((dir, name) -> name.endsWith(".yml"));
+
         if (files != null) {
             for (File file : files) {
                 try {
-                    String uuidStr = file.getName().replace(".yml", "");
+                    String fileName = file.getName();
+                    String uuidStr = fileName.substring(0, fileName.length() - 4);
                     UUID uuid = UUID.fromString(uuidStr);
-                    FileConfiguration cfg = loadYaml(file);
-                    double value = cfg.getDouble(field, 0.0);
-                    if (value > 0) {
-                        String name = cfg.getString("name");
-                        if (name == null || name.isEmpty()) {
-                            name = cfg.getString("cached_name");
-                        }
-                        if (name == null || name.isEmpty()) {
-                            name = getPlayerName(uuid);
-                        }
-                        if (name == null || name.isEmpty()) {
-                            org.bukkit.OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
-                            if (op != null && op.getName() != null) {
-                                name = op.getName();
+
+                    String name = null;
+                    double value = 0.0;
+                    boolean foundField = false;
+
+                    try (java.io.BufferedReader reader = java.nio.file.Files.newBufferedReader(file.toPath(), java.nio.charset.StandardCharsets.UTF_8)) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            int colonIdx = line.indexOf(':');
+                            if (colonIdx <= 0) continue;
+                            String k = line.substring(0, colonIdx).trim();
+                            String v = line.substring(colonIdx + 1).trim();
+
+                            if (k.equalsIgnoreCase("name") || k.equalsIgnoreCase("cached_name")) {
+                                if (name == null || name.isEmpty()) {
+                                    name = v.replace("'", "").replace("\"", "").trim();
+                                }
+                            } else if (k.equalsIgnoreCase(fieldKey)) {
+                                try {
+                                    value = Double.parseDouble(v);
+                                    foundField = true;
+                                } catch (NumberFormatException ignored) {}
                             }
                         }
+                    }
+
+                    if (foundField && value > 0) {
                         if (name == null || name.isEmpty()) {
                             name = uuidStr.length() > 8 ? uuidStr.substring(0, 8) : uuidStr;
                         }
@@ -771,14 +820,14 @@ public class YamlFlatfileStorage {
             }
         }
 
-        
-        for (org.bukkit.entity.Player p : Bukkit.getOnlinePlayers()) {
+        // Overlay online players' live values
+        for (Player p : Bukkit.getOnlinePlayers()) {
             try {
                 UUID uuid = p.getUniqueId();
                 PlayerData pd = plugin.getPlayerDataManager().get(uuid);
                 if (pd != null) {
                     double val = 0.0;
-                    switch (field.toLowerCase()) {
+                    switch (fieldKey) {
                         case "money":
                             val = pd.getMoney();
                             break;
@@ -817,13 +866,26 @@ public class YamlFlatfileStorage {
             } catch (Exception ignored) {}
         }
 
-        List<PlayerDataManager.LeaderboardEntry> entries = new ArrayList<>(entryMap.values());
-        entries.sort((a, b) -> Double.compare(b.value, a.value));
-        return entries.size() > limit ? new ArrayList<>(entries.subList(0, limit)) : entries;
+        List<PlayerDataManager.LeaderboardEntry> sorted = new ArrayList<>(entryMap.values());
+        sorted.sort((a, b) -> Double.compare(b.value, a.value));
+
+        cachedLeaderboards.put(fieldKey, sorted);
+        lastLeaderboardUpdates.put(fieldKey, System.currentTimeMillis());
+
+        return sorted;
+    }
+
+    public void invalidateLeaderboardCache(String field) {
+        if (field != null) {
+            lastLeaderboardUpdates.remove(field.toLowerCase());
+        } else {
+            lastLeaderboardUpdates.clear();
+        }
     }
 
     public List<PlayerDataManager.LeaderboardEntry> getTopShards(int limit) { return getTopByField("shards", limit); }
     public List<PlayerDataManager.LeaderboardEntry> getTopMoney(int limit) { return getTopByField("money", limit); }
+    public List<PlayerDataManager.LeaderboardEntry> getTopMoney(int limit, boolean forceRefresh) { return getTopByField("money", limit, forceRefresh); }
     public List<PlayerDataManager.LeaderboardEntry> getTopKills(int limit) { return getTopByField("kills", limit); }
     public List<PlayerDataManager.LeaderboardEntry> getTopDeaths(int limit) { return getTopByField("deaths", limit); }
     public List<PlayerDataManager.LeaderboardEntry> getTopPlaytime(int limit) { return getTopByField("playtime", limit); }
@@ -1807,5 +1869,60 @@ public class YamlFlatfileStorage {
                 saveYaml(cfg, temporaryBlocksFile);
             }
         });
+    }
+
+    public void saveDeathRecord(DeathRecord record) {
+        if (record == null || record.getUuid() == null) return;
+        plugin.getSchedulerAdapter().runTaskAsync(() -> {
+            File file = new File(deathRecordsFolder, record.getUuid().toString() + ".yml");
+            FileConfiguration cfg = loadYaml(file);
+            String key = "d_" + record.getTimestamp() + "_" + (System.nanoTime() % 1000);
+            cfg.set(key + ".id", record.getId());
+            cfg.set(key + ".player_name", record.getPlayerName());
+            cfg.set(key + ".cause", record.getCause());
+            cfg.set(key + ".dimension", record.getDimension());
+            cfg.set(key + ".world_name", record.getWorldName());
+            cfg.set(key + ".x", record.getX());
+            cfg.set(key + ".y", record.getY());
+            cfg.set(key + ".z", record.getZ());
+            cfg.set(key + ".items_base64", record.getItemsBase64());
+            cfg.set(key + ".timestamp", record.getTimestamp());
+            saveYaml(cfg, file);
+        });
+    }
+
+    public List<DeathRecord> getDeathRecords(UUID uuid, int limit) {
+        List<DeathRecord> list = new ArrayList<>();
+        if (uuid == null) return list;
+        File file = new File(deathRecordsFolder, uuid.toString() + ".yml");
+        if (!file.exists()) return list;
+        FileConfiguration cfg = loadYaml(file);
+        for (String key : cfg.getKeys(false)) {
+            ConfigurationSection sec = cfg.getConfigurationSection(key);
+            if (sec == null) continue;
+            list.add(new DeathRecord(
+                    sec.getLong("id", 0),
+                    uuid,
+                    sec.getString("player_name", "Unknown"),
+                    sec.getString("cause", "Unknown Causes"),
+                    sec.getString("dimension", "Overworld"),
+                    sec.getString("world_name", "world"),
+                    sec.getDouble("x", 0.0),
+                    sec.getDouble("y", 0.0),
+                    sec.getDouble("z", 0.0),
+                    sec.getString("items_base64", ""),
+                    sec.getLong("timestamp", 0)
+            ));
+        }
+        list.sort((a, b) -> Long.compare(b.getTimestamp(), a.getTimestamp()));
+        if (limit > 0 && list.size() > limit) {
+            return new ArrayList<>(list.subList(0, limit));
+        }
+        return list;
+    }
+
+    public DeathRecord getLatestDeathRecord(UUID uuid) {
+        List<DeathRecord> records = getDeathRecords(uuid, 1);
+        return records.isEmpty() ? null : records.get(0);
     }
 }

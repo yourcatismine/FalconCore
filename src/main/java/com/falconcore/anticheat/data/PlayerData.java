@@ -94,6 +94,9 @@ public class PlayerData {
     private final Deque<MovementSample> recentSamples = new ConcurrentLinkedDeque<>();
     private static final int MAX_SAMPLES = 50;
 
+    private final Deque<LookSample> recentLooks = new ConcurrentLinkedDeque<>();
+    private static final int MAX_LOOK_SAMPLES = 100;
+
     private boolean bedrock = false;
 
     private final java.util.concurrent.atomic.AtomicInteger anticheatSetbackPending = new java.util.concurrent.atomic.AtomicInteger(0);
@@ -541,6 +544,38 @@ public class PlayerData {
         return new ArrayList<>(recentSamples);
     }
 
+    public void recordLook(Location eyeLoc) {
+        if (eyeLoc == null) return;
+        recentLooks.addLast(new LookSample(System.currentTimeMillis(), eyeLoc));
+        while (recentLooks.size() > MAX_LOOK_SAMPLES) {
+            recentLooks.removeFirst();
+        }
+    }
+
+    public List<LookSample> getRecentLooks(long windowMs) {
+        long cutoff = System.currentTimeMillis() - windowMs;
+        List<LookSample> list = new ArrayList<>();
+        for (LookSample s : recentLooks) {
+            if (s.time >= cutoff) {
+                list.add(s);
+            }
+        }
+        return list;
+    }
+
+    public float getMaxPitchInWindow(long windowMs, float currentPitch) {
+        long cutoff = System.currentTimeMillis() - windowMs;
+        float maxPitch = currentPitch;
+        for (LookSample s : recentLooks) {
+            if (s.time >= cutoff) {
+                if (s.pitch > maxPitch) {
+                    maxPitch = s.pitch;
+                }
+            }
+        }
+        return maxPitch;
+    }
+
     public String generateDump() {
         StringBuilder sb = new StringBuilder();
         sb.append("=== FALCON ANTICHEAT MOVEMENT DUMP ===\n");
@@ -823,6 +858,27 @@ public class PlayerData {
         public String toString() {
             return String.format("[Sample] Pos: (%.2f, %.2f, %.2f) | dY: %+.4f (dXZ: %.4f) | Air: %d, Grnd: %d, Asc: %d, Fall: %d | OnGrnd: (cli=%b, math=%b) | Liq: %b, Climb: %b, Grace: %b | Ping: %dms",
                     x, y, z, deltaY, deltaXZ, airTicks, groundTicks, ascendTicks, fallTicks, clientGround, mathGround, inLiquid, onClimbable, hasGrace, ping);
+        }
+    }
+
+    public static class LookSample {
+        public final long time;
+        public final double eyeX, eyeY, eyeZ;
+        public final float yaw, pitch;
+        public final Vector direction;
+
+        public LookSample(long time, Location eyeLoc) {
+            this.time = time;
+            this.eyeX = eyeLoc.getX();
+            this.eyeY = eyeLoc.getY();
+            this.eyeZ = eyeLoc.getZ();
+            this.yaw = eyeLoc.getYaw();
+            this.pitch = eyeLoc.getPitch();
+            this.direction = eyeLoc.getDirection().normalize();
+        }
+
+        public Vector getEyeVector() {
+            return new Vector(eyeX, eyeY, eyeZ);
         }
     }
 }

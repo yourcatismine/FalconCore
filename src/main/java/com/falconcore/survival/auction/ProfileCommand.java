@@ -61,6 +61,15 @@ public class ProfileCommand implements CommandExecutor, TabCompleter {
                 });
                 return;
             }
+
+            if (controller.getPlugin().getDeathRecordManager() != null) {
+                com.falconcore.survival.death.DeathRecord latest = controller.getPlugin().getDatabaseManager() != null
+                        ? controller.getPlugin().getDatabaseManager().getLatestDeathRecord(targetPlayer.getUniqueId())
+                        : null;
+                if (latest != null) {
+                    controller.getPlugin().getDeathRecordManager().getLatestCachedDeathRecord(targetPlayer.getUniqueId());
+                }
+            }
             
             controller.getPlugin().getSchedulerAdapter().runEntityTask(player, () -> {
                 openProfileGUI(player, targetPlayer);
@@ -168,6 +177,34 @@ public class ProfileCommand implements CommandExecutor, TabCompleter {
             }
             inv.setItem(20, noTeamBarrier);
         }
+
+        // Slot 21: Death Logs Item (Paper)
+        ItemStack deathItem = new ItemStack(Material.PAPER);
+        ItemMeta deathMeta = deathItem.getItemMeta();
+        if (deathMeta != null) {
+            deathMeta.setDisplayName(Utils.formatColors("&dᴅᴇᴀᴛʜ ʟᴏɢѕ"));
+            
+            com.falconcore.survival.death.DeathRecord latestDeath = falcon != null && falcon.getDeathRecordManager() != null
+                    ? falcon.getDeathRecordManager().getLatestCachedDeathRecord(targetPlayer.getUniqueId())
+                    : null;
+
+            List<String> lore = new ArrayList<>();
+            if (latestDeath != null) {
+                lore.add(Utils.formatColors("&8&m-----------------------------"));
+                lore.add(Utils.formatColors("&dᴛɪᴍᴇ ᴏꜰ ᴅᴇᴀᴛʜ: &f" + latestDeath.getFormattedDate() + " &8(" + latestDeath.getRelativeTime() + ")"));
+                lore.add(Utils.formatColors("&dᴄᴀᴜѕᴇ: &f" + latestDeath.getCause()));
+                lore.add(Utils.formatColors("&dᴅɪᴍᴇɴѕɪᴏɴ: &f" + latestDeath.getDimension()));
+                lore.add(Utils.formatColors("&dᴡᴏʀʟᴅ: &f" + latestDeath.getWorldName()));
+                lore.add(Utils.formatColors("&8&m-----------------------------"));
+                lore.add(Utils.formatColors("&fClick to view death records"));
+            } else {
+                lore.add(Utils.formatColors("&7No death records found."));
+                lore.add(Utils.formatColors("&fClick to view death records"));
+            }
+            deathMeta.setLore(lore);
+            deathItem.setItemMeta(deathMeta);
+        }
+        inv.setItem(21, deathItem);
         
         viewer.openInventory(inv);
     }

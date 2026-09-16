@@ -152,25 +152,41 @@ public final class Utils {
 
     public static String formatDuration(long millis) {
         if (millis <= 0)
-            return "0m";
+            return "0s";
         long seconds = millis / 1000;
         long minutes = seconds / 60;
         long hours = minutes / 60;
         long days = hours / 24;
 
-        minutes %= 60;
-        hours %= 24;
+        long remHours = hours % 24;
+        long remMinutes = minutes % 60;
+        long remSeconds = seconds % 60;
 
         StringBuilder sb = new StringBuilder();
-        if (days > 0)
-            sb.append(days).append("d ");
-        if (hours > 0)
-            sb.append(hours).append("h ");
-        if (minutes > 0)
+        if (days > 0) {
+            sb.append(days).append("d");
+            if (remHours > 0) {
+                sb.append(" ").append(remHours).append("h");
+            }
+            if (days < 2 && remHours == 0 && remMinutes > 0) {
+                sb.append(" ").append(remMinutes).append("m");
+            }
+        } else if (hours > 0) {
+            sb.append(hours).append("h");
+            if (remMinutes > 0) {
+                sb.append(" ").append(remMinutes).append("m");
+            }
+        } else if (minutes > 0) {
             sb.append(minutes).append("m");
+            if (remSeconds > 0) {
+                sb.append(" ").append(remSeconds).append("s");
+            }
+        } else {
+            sb.append(seconds).append("s");
+        }
 
         String res = sb.toString().trim();
-        return res.isEmpty() ? "0m" : res;
+        return res.isEmpty() ? "0s" : res;
     }
 
     public static String toSmallCaps(String input) {

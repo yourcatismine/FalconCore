@@ -9,6 +9,7 @@ import org.bukkit.Material;
 import com.falconcore.survival.spawners.storage.SpawnerData;
 import com.falconcore.survival.spawners.mob.SpawnerType;
 import com.falconcore.anticheat.data.AntiCheatLogEntry;
+import com.falconcore.survival.death.DeathRecord;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -522,6 +523,23 @@ public class DatabaseManager {
                     "INDEX timestamp_idx (timestamp)" +
                     ")";
             s.execute(anticheatViolationsTable);
+
+            String deathRecordsTable = "CREATE TABLE IF NOT EXISTS death_records (" +
+                    "id INT AUTO_INCREMENT PRIMARY KEY," +
+                    "uuid VARCHAR(36) NOT NULL," +
+                    "player_name VARCHAR(16) NOT NULL," +
+                    "cause VARCHAR(255) NOT NULL," +
+                    "dimension VARCHAR(64) NOT NULL," +
+                    "world_name VARCHAR(64) NOT NULL," +
+                    "x DOUBLE NOT NULL," +
+                    "y DOUBLE NOT NULL," +
+                    "z DOUBLE NOT NULL," +
+                    "items_base64 MEDIUMTEXT NOT NULL," +
+                    "timestamp BIGINT NOT NULL," +
+                    "INDEX uuid_idx (uuid)," +
+                    "INDEX timestamp_idx (timestamp)" +
+                    ")";
+            s.execute(deathRecordsTable);
 
         } catch (SQLException e) {
         }
@@ -1323,6 +1341,11 @@ public class DatabaseManager {
         } catch (SQLException e) {
         }
         return entries;
+    }
+
+    public List<PlayerDataManager.LeaderboardEntry> getTopMoney(int limit, boolean forceRefresh) {
+        if (flatfileMode) return yamlStorage.getTopMoney(limit, forceRefresh);
+        return getTopMoney(limit);
     }
 
     public List<PlayerDataManager.LeaderboardEntry> getTopMoney(int limit) {
@@ -2236,5 +2259,73 @@ public class DatabaseManager {
             plugin.getLogger().log(Level.WARNING, "Failed to query anticheat violations for " + uuid, e);
         }
         return list;
+    }
+
+    public void saveDeathRecord(DeathRecord record) {
+        if (flatfileMode) {
+            yamlStorage.saveDeathRecord(record);
+            return;
+        }
+        if (!isConnected() || record == null || record.getUuid() == null) return;
+        plugin.getSchedulerAdapter().runTaskAsync(() -> {
+            String query = "INSERT INTO death_records (uuid, player_name, cause, dimension, world_name, x, y, z, items_base64, timestamp) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            try (Connection conn = getConnection(); PreparedStatement ps = conn.prepareStatement(query)) {
+                ps.setString(1, record.getUuid().toString());
+                ps.setString(2, record.getPlayerName());
+                ps.setString(3, record.getCause());
+                ps.setString(4, record.getDimension());
+                ps.setString(5, record.getWorldName());
+                ps.setDouble(6, record.getX());
+                ps.setDouble(7, record.getY());
+                ps.setDouble(8, record.getZ());
+                ps.setString(9, record.getItemsBase64());
+                ps.setLong(10, record.getTimestamp());
+                ps.executeUpdate();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to insert death record for " + record.getPlayerName(), e);
+            }
+        });
+    }
+
+    public List<DeathRecord> getDeathRecords(UUID uuid, int limit) {
+        if (flatfileMode) {
+            return yamlStorage.getDeathRecords(uuid, limit);
+        }
+        List<DeathRecord> list = new ArrayList<>();
+        if (!isConnected() || uuid == null) return list;
+        String query = "SELECT * FROM death_records WHERE uuid = ? ORDER BY timestamp DESC LIMIT ?";
+        try (Connection conn = getConnection(); PreparedStatement ps = conn.prepareStatement(query)) {
+            ps.setString(1, uuid.toString());
+            ps.setInt(2, limit > 0 ? limit : 100);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(new DeathRecord(
+                            rs.getLong("id"),
+                            uuid,
+                            rs.getString("player_name"),
+                            rs.getString("cause"),
+                            rs.getString("dimension"),
+                            rs.getString("world_name"),
+                            rs.getDouble("x"),
+                            rs.getDouble("y"),
+                            rs.getDouble("z"),
+                            rs.getString("items_base64"),
+                            rs.getLong("timestamp")
+                    ));
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to query death records for " + uuid, e);
+        }
+        return list;
+    }
+
+    public DeathRecord getLatestDeathRecord(UUID uuid) {
+        if (flatfileMode) {
+            return yamlStorage.getLatestDeathRecord(uuid);
+        }
+        List<DeathRecord> records = getDeathRecords(uuid, 1);
+        return records.isEmpty() ? null : records.get(0);
     }
 }

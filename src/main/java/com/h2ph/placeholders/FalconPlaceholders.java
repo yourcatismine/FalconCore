@@ -267,6 +267,7 @@ public class FalconPlaceholders extends PlaceholderExpansion {
     }
     
     private String formatPlaytime(long totalSeconds) {
+        if (totalSeconds <= 0) return "0s";
         long days = totalSeconds / 86400;
         long rem = totalSeconds % 86400;
         long hours = rem / 3600;
@@ -275,13 +276,13 @@ public class FalconPlaceholders extends PlaceholderExpansion {
         long seconds = rem % 60;
     
         if (days > 0) {
-            return days + "d " + hours + "h";
+            return days + "d" + (hours > 0 ? " " + hours + "h" : "");
         }
         if (hours > 0) {
-            return hours + "h " + minutes + "m";
+            return hours + "h" + (minutes > 0 ? " " + minutes + "m" : "");
         }
         if (minutes > 0) {
-            return minutes + "m " + seconds + "s";
+            return minutes + "m" + (seconds > 0 ? " " + seconds + "s" : "");
         }
         return seconds + "s";
     }

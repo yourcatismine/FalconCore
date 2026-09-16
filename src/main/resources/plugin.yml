@@ -1,5 +1,5 @@
 name: Falcon
-version: "7.2"
+version: "7.3"
 main: com.h2ph.Falcon
 api-version: "1.13"
 author: Kiarerss

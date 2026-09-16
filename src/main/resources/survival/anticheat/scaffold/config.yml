@@ -16,9 +16,12 @@ subchecks:
   type-a:
     enabled: true
     vl-increment: 1.5
+    box-expansion: 0.48
+    max-distance: 5.8
+    ping-buffer-ms: 350
   type-b:
     enabled: true
-    max-pitch: 38.0
+    max-pitch: 35.0
     vl-increment: 1.5
   type-c:
     enabled: true

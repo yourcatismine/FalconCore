@@ -141,7 +141,7 @@ public class BaltopCommand implements CommandExecutor, Listener {
 
                 if (forceRefresh || cachedEntries == null || (now - lastCacheTime >= CACHE_DURATION)) {
                     if (plugin.getDatabaseManager() != null && plugin.getDatabaseManager().isConnected()) {
-                        allEntries = plugin.getDatabaseManager().getTopMoney(2000);
+                        allEntries = plugin.getDatabaseManager().getTopMoney(2000, forceRefresh);
                     } else if (plugin.getPlayerDataManager() != null) {
                         allEntries = plugin.getPlayerDataManager().getTopMoney(2000);
                     } else {

@@ -1,0 +1,29 @@
+# ─────────────────────────────────────────────────────────────
+# FalconCore - AntiCheat: AutoMine Detection Configuration
+# ─────────────────────────────────────────────────────────────
+
+enabled: true
+
+violations:
+  alert-threshold: 999999.0
+  punishment-threshold: 999999.0
+
+setback:
+  enabled: false
+  min-vl: 1.0
+
+# Number of consecutive blocks mined in a straight line with static viewing angle before flagging
+block-threshold: 25
+
+# Maximum allowed viewing angle variance (degrees) to be considered static/bot mouse
+max-angle-variance: 0.25
+
+# Max time in milliseconds between block breaks before streak resets
+max-break-interval-ms: 6000
+
+subchecks:
+  straight-line:
+    enabled: true
+    threshold: 25
+    max-variance: 0.25
+    vl-increment: 2.0

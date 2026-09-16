@@ -32,7 +32,7 @@ public class ReachCheck extends Check {
     private double typeBVlIncrement = 2.0;
 
     private boolean typeCEnabled = true;
-    private double typeCMaxBlockReach = 4.85;
+    private double typeCMaxBlockReach = 5.25;
     private double typeCVlIncrement = 1.5;
 
     private final Map<UUID, Deque<TimedBox>> targetHistory = new ConcurrentHashMap<>();
@@ -133,118 +133,132 @@ public class ReachCheck extends Check {
     }
 
     public void handleBlockDamage(Player player, PlayerData data, Block block, BlockDamageEvent event) {
-        if (!typeCEnabled || !enabled || !manager.isEnabled()) return;
+        if (!typeCEnabled || !enabled || !manager.isEnabled() || block == null) return;
         if (player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR) return;
         if (manager.hasBypass(player)) return;
         if (manager.isIgnoreBedrock() && data.isBedrock()) return;
 
-        Location eyeLoc = player.getEyeLocation();
-        Location blockCenter = block.getLocation().add(0.5, 0.5, 0.5);
-        double dist = eyeLoc.distance(blockCenter);
-        double maxBlock = typeCMaxBlockReach + (player.getPing() > 150 ? 0.75 : 0.0);
+        double dist = calculateMinDistanceToBlock(player, data, block);
+        double maxBlock = getMaxAllowedBlockReach(player, data);
 
-        boolean flag = dist > maxBlock;
-        Location fromLoc = data.getFrom();
-        if (!flag && fromLoc != null && fromLoc.getWorld() != null && fromLoc.getWorld().equals(eyeLoc.getWorld())) {
-            Location fromEye = fromLoc.clone().add(0, player.getEyeHeight(), 0);
-            if (fromEye.distance(blockCenter) > (maxBlock + 1.2) || (data.getDeltaXZ() > 1.8 && !data.hasHardGrace())) {
-                flag = true;
-            }
-        }
-
-        if (flag) {
+        if (dist > maxBlock) {
             event.setCancelled(true);
             player.sendBlockChange(block.getLocation(), block.getBlockData());
             fail(player, data, "Type C (Block Reach)", typeCVlIncrement,
-                    String.format("Block damage reach exceeded (dist=%.3f, max=%.3f, block=%s)", dist, maxBlock, block.getType().name()));
+                    String.format("Block damage reach exceeded (dist=%.3f, max=%.3f, block=%s, ping=%d)",
+                            dist, maxBlock, block.getType().name(), player.getPing()));
         }
     }
 
     public void handleBlockBreak(Player player, PlayerData data, Block block, BlockBreakEvent event) {
-        if (!typeCEnabled || !enabled || !manager.isEnabled()) return;
+        if (!typeCEnabled || !enabled || !manager.isEnabled() || block == null) return;
         if (player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR) return;
         if (manager.hasBypass(player)) return;
         if (manager.isIgnoreBedrock() && data.isBedrock()) return;
 
-        Location eyeLoc = player.getEyeLocation();
-        Location blockCenter = block.getLocation().add(0.5, 0.5, 0.5);
-        double dist = eyeLoc.distance(blockCenter);
-        double maxBlock = typeCMaxBlockReach + (player.getPing() > 150 ? 0.75 : 0.0);
+        double dist = calculateMinDistanceToBlock(player, data, block);
+        double maxBlock = getMaxAllowedBlockReach(player, data);
 
-        boolean flag = dist > maxBlock;
-        Location fromLoc = data.getFrom();
-        if (!flag && fromLoc != null && fromLoc.getWorld() != null && fromLoc.getWorld().equals(eyeLoc.getWorld())) {
-            Location fromEye = fromLoc.clone().add(0, player.getEyeHeight(), 0);
-            if (fromEye.distance(blockCenter) > (maxBlock + 1.2) || (data.getDeltaXZ() > 1.8 && !data.hasHardGrace())) {
-                flag = true;
-            }
-        }
-
-        if (flag) {
+        if (dist > maxBlock) {
             event.setCancelled(true);
             player.sendBlockChange(block.getLocation(), block.getBlockData());
             fail(player, data, "Type C (Block Reach)", typeCVlIncrement,
-                    String.format("Block break reach exceeded (dist=%.3f, max=%.3f, block=%s)", dist, maxBlock, block.getType().name()));
+                    String.format("Block break reach exceeded (dist=%.3f, max=%.3f, block=%s, ping=%d)",
+                            dist, maxBlock, block.getType().name(), player.getPing()));
         }
     }
 
     public void handleBlockPlace(Player player, PlayerData data, Block placedBlock, Block againstBlock, org.bukkit.event.block.BlockPlaceEvent event) {
-        if (!typeCEnabled || !enabled || !manager.isEnabled()) return;
+        if (!typeCEnabled || !enabled || !manager.isEnabled() || placedBlock == null) return;
         if (player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR) return;
         if (manager.hasBypass(player)) return;
         if (manager.isIgnoreBedrock() && data.isBedrock()) return;
 
-        Location eyeLoc = player.getEyeLocation();
-        Location blockCenter = placedBlock.getLocation().add(0.5, 0.5, 0.5);
-        double dist = eyeLoc.distance(blockCenter);
-        double maxBlock = typeCMaxBlockReach + (player.getPing() > 150 ? 0.75 : 0.0);
+        // When placing a block, calculate distance to both the placed block and the block placed against
+        double distPlaced = calculateMinDistanceToBlock(player, data, placedBlock);
+        double distAgainst = againstBlock != null ? calculateMinDistanceToBlock(player, data, againstBlock) : distPlaced;
+        double dist = Math.min(distPlaced, distAgainst);
 
-        boolean flag = dist > maxBlock;
-        Location fromLoc = data.getFrom();
-        if (!flag && fromLoc != null && fromLoc.getWorld() != null && fromLoc.getWorld().equals(eyeLoc.getWorld())) {
-            Location fromEye = fromLoc.clone().add(0, player.getEyeHeight(), 0);
-            if (fromEye.distance(blockCenter) > (maxBlock + 1.2) || (data.getDeltaXZ() > 1.8 && !data.hasHardGrace())) {
-                flag = true;
-            }
-        }
+        double maxBlock = getMaxAllowedBlockReach(player, data);
 
-        if (flag) {
+        if (dist > maxBlock) {
             event.setCancelled(true);
             event.setBuild(false);
             player.sendBlockChange(placedBlock.getLocation(), org.bukkit.Material.AIR.createBlockData());
             fail(player, data, "Type C (Block Reach)", typeCVlIncrement,
-                    String.format("Block place reach exceeded (dist=%.3f, max=%.3f, block=%s)", dist, maxBlock, placedBlock.getType().name()));
+                    String.format("Block place reach exceeded (dist=%.3f, max=%.3f, block=%s, ping=%d)",
+                            dist, maxBlock, placedBlock.getType().name(), player.getPing()));
         }
     }
 
     public void handleInteractBlock(Player player, PlayerData data, Block clickedBlock, org.bukkit.event.player.PlayerInteractEvent event) {
-        if (!typeCEnabled || !enabled || !manager.isEnabled()) return;
-        if (player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR) return;
-        if (manager.hasBypass(player)) return;
-        if (manager.isIgnoreBedrock() && data.isBedrock()) return;
+        // Isolated: General interact events (empty swings, doors, item use, eating) are no longer intercepted
+        // to prevent false positives during non-building actions and packet desyncs.
+    }
 
+    private double calculateMinDistanceToBlock(Player player, PlayerData data, Block block) {
         Location eyeLoc = player.getEyeLocation();
-        Location blockCenter = clickedBlock.getLocation().add(0.5, 0.5, 0.5);
-        double dist = eyeLoc.distance(blockCenter);
-        double maxBlock = typeCMaxBlockReach + (player.getPing() > 150 ? 0.75 : 0.0);
+        double minDist = distanceToBlock(eyeLoc, block);
 
-        boolean flag = dist > maxBlock;
+        // Compensate for player movement desync by checking the previous tick's eye position
         Location fromLoc = data.getFrom();
-        if (!flag && fromLoc != null && fromLoc.getWorld() != null && fromLoc.getWorld().equals(eyeLoc.getWorld())) {
+        if (fromLoc != null && fromLoc.getWorld() != null && fromLoc.getWorld().equals(eyeLoc.getWorld())) {
             Location fromEye = fromLoc.clone().add(0, player.getEyeHeight(), 0);
-            if (fromEye.distance(blockCenter) > (maxBlock + 1.2) || (data.getDeltaXZ() > 1.8 && !data.hasHardGrace())) {
-                flag = true;
-            }
+            double fromDist = distanceToBlock(fromEye, block);
+            minDist = Math.min(minDist, fromDist);
+        }
+        return minDist;
+    }
+
+    private double getMaxAllowedBlockReach(Player player, PlayerData data) {
+        double maxBlock = typeCMaxBlockReach;
+        int ping = player.getPing();
+
+        // High-latency ping compensation
+        if (ping > 50) {
+            maxBlock += Math.min(1.5, (ping - 50) * 0.005);
+        }
+        if (ping >= 150) {
+            maxBlock += 0.5;
+        }
+        if (ping >= 250) {
+            maxBlock += 0.5; // total +1.0 for 250ms+
+        }
+        if (ping >= 350) {
+            maxBlock += 0.5; // total +1.5 for 350ms+
         }
 
-        if (flag) {
-            event.setCancelled(true);
-            event.setUseInteractedBlock(org.bukkit.event.Event.Result.DENY);
-            event.setUseItemInHand(org.bukkit.event.Event.Result.DENY);
-            player.sendBlockChange(clickedBlock.getLocation(), clickedBlock.getBlockData());
-            fail(player, data, "Type C (Block Reach)", typeCVlIncrement,
-                    String.format("Block interact reach exceeded (dist=%.3f, max=%.3f, block=%s)", dist, maxBlock, clickedBlock.getType().name()));
+        // Movement velocity desync compensation
+        double deltaXZ = data.getDeltaXZ();
+        if (deltaXZ > 0.1) {
+            maxBlock += Math.min(0.85, deltaXZ * 1.25);
         }
+
+        if (data.hasHardGrace()) {
+            maxBlock += 1.5;
+        }
+
+        return maxBlock;
+    }
+
+    private double distanceToBlock(Location eyeLoc, Block block) {
+        // Measure distance to the closest point of the block's 1x1x1 bounding box
+        double minX = block.getX();
+        double minY = block.getY();
+        double minZ = block.getZ();
+        double maxX = minX + 1.0;
+        double maxY = minY + 1.0;
+        double maxZ = minZ + 1.0;
+
+        double x = Math.max(minX, Math.min(eyeLoc.getX(), maxX));
+        double y = Math.max(minY, Math.min(eyeLoc.getY(), maxY));
+        double z = Math.max(minZ, Math.min(eyeLoc.getZ(), maxZ));
+
+        double dx = eyeLoc.getX() - x;
+        double dy = eyeLoc.getY() - y;
+        double dz = eyeLoc.getZ() - z;
+
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
     private double distanceToBoundingBox(Location eyeLoc, BoundingBox box) {
@@ -275,7 +289,7 @@ public class ReachCheck extends Check {
         this.typeBVlIncrement = config.getDouble("subchecks.type-b.vl-increment", 2.0);
 
         this.typeCEnabled = config.getBoolean("subchecks.type-c.enabled", true);
-        this.typeCMaxBlockReach = config.getDouble("subchecks.type-c.max-block-reach", 4.85);
+        this.typeCMaxBlockReach = config.getDouble("subchecks.type-c.max-block-reach", 5.25);
         this.typeCVlIncrement = config.getDouble("subchecks.type-c.vl-increment", 1.5);
     }
 }

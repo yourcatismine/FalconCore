@@ -6,7 +6,7 @@
 
     <groupId>com.h2ph</groupId>
     <artifactId>falcon</artifactId>
-    <version>7.2</version>
+    <version>7.3</version>
     <packaging>jar</packaging>
     <name>Falcon</name>
     <description>Falcon is a comprehensive Minecraft server plugin for modern Paper/Folia servers</description>

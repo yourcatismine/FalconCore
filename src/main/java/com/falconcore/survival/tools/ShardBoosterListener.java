@@ -22,7 +22,6 @@ import org.bukkit.persistence.PersistentDataType;
 public class ShardBoosterListener implements Listener {
 
     private final Falcon plugin;
-    public static final long MAX_BOOSTER_SECONDS = 86400L; // 24 hours cap
 
     public ShardBoosterListener(Falcon plugin) {
         this.plugin = plugin;
@@ -50,7 +49,7 @@ public class ShardBoosterListener implements Listener {
             return;
         }
 
-        // 1. Determine the booster duration to grant
+        // 1. Determine the booster duration to grant (in seconds)
         long durationSeconds = 86400L;
         ToolsManager toolsManager = plugin.getToolsManager();
         if (toolsManager != null && toolsManager.getConfig() != null) {
@@ -80,19 +79,12 @@ public class ShardBoosterListener implements Listener {
         }
 
         long now = System.currentTimeMillis();
+        long addedMillis = durationSeconds * 1000L;
 
-        // 2. Time stacking & 24h limit enforcement
+        // 2. Uncapped time stacking
         if (data.hasActiveShardBooster()) {
-            long currentRemainingSeconds = data.getShardBoosterRemainingSeconds();
-            if (currentRemainingSeconds >= MAX_BOOSTER_SECONDS) {
-                player.sendMessage(Utils.formatColors("&cYour Shard Booster is already at the maximum duration (24h)!"));
-                event.setCancelled(true);
-                return;
-            }
-
             long currentRemainingMillis = Math.max(0, data.getShardBoosterExpiry() - now);
-            long addedMillis = durationSeconds * 1000L;
-            long newRemainingMillis = Math.min(MAX_BOOSTER_SECONDS * 1000L, currentRemainingMillis + addedMillis);
+            long newRemainingMillis = currentRemainingMillis + addedMillis;
             long newExpiryMillis = now + newRemainingMillis;
 
             data.setShardBoosterExpiry(newExpiryMillis);
@@ -104,12 +96,11 @@ public class ShardBoosterListener implements Listener {
                     new net.md_5.bungee.api.chat.TextComponent(msg));
         } else {
             // Fresh or expired activation
-            long newRemainingMillis = Math.min(MAX_BOOSTER_SECONDS * 1000L, durationSeconds * 1000L);
-            long newExpiryMillis = now + newRemainingMillis;
+            long newExpiryMillis = now + addedMillis;
 
             data.setShardBoosterExpiry(newExpiryMillis);
 
-            String formattedTime = Utils.formatDuration(newRemainingMillis);
+            String formattedTime = Utils.formatDuration(addedMillis);
             String msg = Utils.formatColors("&aYou have activated your &dShard Booster&a! &7(Duration: &e" + formattedTime + "&7)");
             player.sendMessage(msg);
             player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,

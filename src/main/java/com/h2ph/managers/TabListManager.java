@@ -93,11 +93,17 @@ public class TabListManager implements Listener {
         for (Player player : Bukkit.getOnlinePlayers()) {
             updateTabList(player);
         }
+        if (plugin.getNametagManager() != null) {
+            plugin.getNametagManager().loadConfig();
+        }
     }
 
     public void setup() {
+        loadConfig();
         for (Player player : Bukkit.getOnlinePlayers()) {
+            realPlayerNames.put(player.getUniqueId(), player.getName());
             initTabList(player);
+            updateTabList(player);
             startTask(player);
         }
     }
@@ -118,7 +124,26 @@ public class TabListManager implements Listener {
         Player player = event.getPlayer();
         realPlayerNames.put(player.getUniqueId(), player.getName());
         initTabList(player);
+        updateTabList(player);
         startTask(player);
+
+        plugin.getSchedulerAdapter().runTaskLater(() -> {
+            if (player.isOnline()) {
+                updateTabList(player);
+                for (Player online : Bukkit.getOnlinePlayers()) {
+                    updatePlayerDisplayNames(online);
+                }
+            }
+        }, 5L);
+
+        plugin.getSchedulerAdapter().runTaskLater(() -> {
+            if (player.isOnline()) {
+                updateTabList(player);
+                for (Player online : Bukkit.getOnlinePlayers()) {
+                    updatePlayerDisplayNames(online);
+                }
+            }
+        }, 20L);
     }
 
     @EventHandler
@@ -288,9 +313,13 @@ public class TabListManager implements Listener {
      * Gets the group ranking priority for a player
      * Higher numbers = higher priority (appear first in TAB)
      */
-    private int getGroupRanking(Player player) {
+    public int getGroupRanking(Player player) {
         if (!groupSortingEnabled) {
             return 0;
+        }
+
+        if (plugin.getNametagManager() != null) {
+            return plugin.getNametagManager().getPlayerRankWeight(player.getUniqueId());
         }
 
         int best = groupRankings.getOrDefault("default", 0);
@@ -332,6 +361,10 @@ public class TabListManager implements Listener {
         
         for (Player player : Bukkit.getOnlinePlayers()) {
             updateTabList(player);
+        }
+
+        if (plugin.getNametagManager() != null) {
+            plugin.getNametagManager().loadConfig();
         }
     }
     

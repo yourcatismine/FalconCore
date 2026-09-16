@@ -12,7 +12,10 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.entity.EntityToggleGlideEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -31,6 +34,7 @@ public class SusCommand implements CommandExecutor, Listener {
 
     private final Map<UUID, SuspectData> susDataMap = new ConcurrentHashMap<>();
     private final Map<UUID, Integer> playerPageMap = new ConcurrentHashMap<>();
+    private final Map<UUID, ElytraLandingTracker> elytraTrackerMap = new ConcurrentHashMap<>();
 
     public SusCommand(JavaPlugin plugin) {
         instance = this;
@@ -70,8 +74,88 @@ public class SusCommand implements CommandExecutor, Listener {
                 long now = System.currentTimeMillis();
                 // Prune suspect records inactive for more than 5 minutes
                 susDataMap.entrySet().removeIf(entry -> (now - entry.getValue().lastFlagTime) > 300_000L);
+                // Prune expired elytra landing trackers older than 30s
+                elytraTrackerMap.entrySet().removeIf(entry -> (now - entry.getValue().landingTime) > 30_000L);
             }, 1200L, 1200L);
         }
+    }
+
+    @EventHandler(priority = org.bukkit.event.EventPriority.MONITOR, ignoreCancelled = true)
+    public void onEntityToggleGlide(EntityToggleGlideEvent event) {
+        if (!(event.getEntity() instanceof Player player)) {
+            return;
+        }
+
+        // Detect player landing / stopping flight
+        if (!event.isGliding()) {
+            org.bukkit.Location loc = player.getLocation();
+            elytraTrackerMap.put(player.getUniqueId(), new ElytraLandingTracker(
+                    System.currentTimeMillis(),
+                    loc.getBlockX(),
+                    loc.getBlockY(),
+                    loc.getBlockZ()
+            ));
+        } else {
+            // Started gliding again -> reset tracker
+            elytraTrackerMap.remove(player.getUniqueId());
+        }
+    }
+
+    @EventHandler(priority = org.bukkit.event.EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockBreak(BlockBreakEvent event) {
+        Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+
+        // O(1) fast check to ensure zero overhead for normal block breaks
+        ElytraLandingTracker tracker = elytraTrackerMap.get(uuid);
+        if (tracker == null) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        long elapsed = now - tracker.landingTime;
+
+        // Detection window: 30 seconds after landing
+        if (elapsed > 30_000L) {
+            elytraTrackerMap.remove(uuid);
+            return;
+        }
+
+        org.bukkit.block.Block block = event.getBlock();
+        int bx = block.getX();
+        int by = block.getY();
+        int bz = block.getZ();
+
+        int dx = Math.abs(bx - tracker.lastBrokenX);
+        int dz = Math.abs(bz - tracker.lastBrokenZ);
+
+        // Check if player is digging vertically straight down (decreasing Y in a 1x1 or 1x2 column)
+        if (by < tracker.lastBrokenY && dx <= 1 && dz <= 1) {
+            tracker.consecutiveVerticalBreaks++;
+            tracker.lastBrokenX = bx;
+            tracker.lastBrokenY = by;
+            tracker.lastBrokenZ = bz;
+
+            // Threshold: 5+ consecutive vertical blocks broken straight down
+            if (tracker.consecutiveVerticalBreaks >= 5) {
+                if (!tracker.flagged) {
+                    tracker.flagged = true;
+                    addFlag(player, "XRay/ESP", "Elytra Straight-Down Dig", tracker.consecutiveVerticalBreaks);
+                } else if (tracker.consecutiveVerticalBreaks % 5 == 0) {
+                    addFlag(player, "XRay/ESP", "Elytra Straight-Down Dig (" + tracker.consecutiveVerticalBreaks + " blocks)", tracker.consecutiveVerticalBreaks);
+                }
+            }
+        } else {
+            // Player moved away horizontally or mined upwards -> reset or remove tracking
+            if (dx > 2 || dz > 2) {
+                elytraTrackerMap.remove(uuid);
+            }
+        }
+    }
+
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        elytraTrackerMap.remove(event.getPlayer().getUniqueId());
     }
 
     @Override
@@ -233,6 +317,22 @@ public class SusCommand implements CommandExecutor, Listener {
                     });
                 }
             }
+        }
+    }
+
+    private static class ElytraLandingTracker {
+        final long landingTime;
+        int lastBrokenX;
+        int lastBrokenY;
+        int lastBrokenZ;
+        int consecutiveVerticalBreaks = 0;
+        boolean flagged = false;
+
+        public ElytraLandingTracker(long landingTime, int startX, int startY, int startZ) {
+            this.landingTime = landingTime;
+            this.lastBrokenX = startX;
+            this.lastBrokenY = startY;
+            this.lastBrokenZ = startZ;
         }
     }
 

@@ -52,11 +52,8 @@ public class Falcon extends JavaPlugin {
     }
 
     public void reloadSpawnerConfig() {
+        saveResourceSafely("economy/spawner/config.yml");
         spawnerConfigFile = new java.io.File(getDataFolder(), "economy/spawner/config.yml");
-        if (!spawnerConfigFile.exists()) {
-            spawnerConfigFile.getParentFile().mkdirs();
-            saveResource("economy/spawner/config.yml", false);
-        }
         if (spawnerConfigFile.exists()) {
             spawnerConfig = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(spawnerConfigFile);
         }
@@ -110,6 +107,7 @@ public class Falcon extends JavaPlugin {
     private com.h2ph.managers.InventoryWorthManager inventoryWorthManager;
     private com.h2ph.managers.StashManager stashManager;
     private com.falconcore.survival.collision.PlayerCollisionManager playerCollisionManager;
+    private com.falconcore.survival.death.DeathRecordManager deathRecordManager;
     private com.h2ph.commands.economy.BalanceCommand balanceCommand;
 
     private com.falconcore.survival.limiter.LimiterConfig limiterConfig;
@@ -155,7 +153,14 @@ public class Falcon extends JavaPlugin {
     }
 
     @Override
+    public void onLoad() {
+        instance = this;
+        com.h2ph.logger.ConsoleLifecycleLogger.printLoadSequence(this);
+    }
+
+    @Override
     public void onEnable() {
+        long startTime = System.currentTimeMillis();
         instance = this;
         saveAllResources();
         loadSurvivalConfig();
@@ -228,10 +233,12 @@ public class Falcon extends JavaPlugin {
         this.bountyManager = new com.falconcore.survival.manager.BountyManager(this);
 
         this.deathMessageManager = new com.h2ph.managers.DeathMessageManager(this);
+        this.deathRecordManager = new com.falconcore.survival.death.DeathRecordManager(this);
 
         getServer().getPluginManager().registerEvents(new com.h2ph.listeners.CrateListener(this), this);
 
         getServer().getPluginManager().registerEvents(new com.h2ph.listeners.DeathMessageListener(this), this);
+        getServer().getPluginManager().registerEvents(new com.falconcore.survival.death.DeathRecordListener(this), this);
         getServer().getPluginManager().registerEvents(new com.h2ph.listeners.FalconBundleDupeFix(), this);
 
         getSchedulerAdapter().runTaskTimer(() -> {
@@ -745,8 +752,6 @@ public class Falcon extends JavaPlugin {
             }, 40);
         }
 
-        printStartupBanner();
-
         this.playerNameCache.initialize();
 
         getServer().getPluginManager()
@@ -769,6 +774,8 @@ public class Falcon extends JavaPlugin {
         } catch (Exception e) {
             getLogger().warning("Failed to register Log4j Filter: " + e.getMessage());
         }
+
+        com.h2ph.logger.ConsoleLifecycleLogger.printActiveSequence(this, System.currentTimeMillis() - startTime);
     }
 
     private void initializeDiscord() {
@@ -895,31 +902,26 @@ public class Falcon extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        if (jda != null) {
-            if (discordManager != null) {
-                jda.removeEventListener(discordManager); jda.shutdownNow(); long deadline 
-                = System.currentTimeMillis() + 5000L; while (jda.getStatus() != net.dv8tion.jda.api.JDA.Status.SHUTDOWN
-                && System.currentTimeMillis() < deadline) {
-                    try {
-                        Thread.sleep(50);
-                    } catch (InterruptedException ignored) {}
-                }
+        com.h2ph.logger.ConsoleLifecycleLogger.printShutdownHeader();
 
-                jda = null; discordManager = null;
-                stopDiscordStatusTask();
-                stopDiscordTopicTask();
-            }
+        if (this.schedulerAdapter != null) {
+            this.schedulerAdapter.shutdown();
         }
+        com.h2ph.logger.ConsoleLifecycleLogger.logShutdownStep("Cancelling tasks and background timers", "DONE");
 
+        int savedPlayers = 0;
         if (this.playerDataManager != null) {
             for (org.bukkit.entity.Player player : getServer().getOnlinePlayers()) {
                 this.playerDataManager.savePlayerSync(player.getUniqueId());
+                savedPlayers++;
             }
         }
+        com.h2ph.logger.ConsoleLifecycleLogger.logShutdownStep("Saving online player profiles (" + savedPlayers + " players)", "DONE");
 
         if (this.spawnerManager != null) {
             this.spawnerManager.saveSpawners(true, true);
         }
+        com.h2ph.logger.ConsoleLifecycleLogger.logShutdownStep("Flushing spawner entities and data", "DONE");
 
         if (this.enderChestManager != null) {
             for (java.util.UUID uuid : this.enderChestManager.getActiveInventories().keySet()) {
@@ -933,6 +935,7 @@ public class Falcon extends JavaPlugin {
         if (this.teamEnderChestManager != null) {
             this.teamEnderChestManager.saveAllOnShutdown();
         }
+        com.h2ph.logger.ConsoleLifecycleLogger.logShutdownStep("Saving EnderChests and Team storage", "DONE");
 
         if (this.inventoryWorthManager != null) {
             this.inventoryWorthManager.shutdown();
@@ -942,20 +945,21 @@ public class Falcon extends JavaPlugin {
             this.falconSell.onDisable();
         }
 
-        if (this.apiServer != null) {
-            this.apiServer.stop();
-        }
-
         if (this.ordersModule != null) {
             this.ordersModule.disable();
         }
 
-        if (this.rtpQueueManager != null) {
-            this.rtpQueueManager.disable();
-        }
-
         if (this.auctionController != null) {
             this.auctionController.disable();
+        }
+
+        if (this.bountyManager != null) {
+            this.bountyManager.save();
+        }
+        com.h2ph.logger.ConsoleLifecycleLogger.logShutdownStep("Saving bounties, auctions and marketplace", "DONE");
+
+        if (this.rtpQueueManager != null) {
+            this.rtpQueueManager.disable();
         }
 
         if (this.limiterManager != null) {
@@ -982,26 +986,40 @@ public class Falcon extends JavaPlugin {
             this.checkerManager.cleanup();
         }
 
-        if (this.bountyManager != null) {
-            this.bountyManager.save();
-        }
-
         if (this.falconBotManager != null) {
             this.falconBotManager.despawnAll();
         }
+        com.h2ph.logger.ConsoleLifecycleLogger.logShutdownStep("Despawning fake players and bots", "DONE");
+
+        if (this.apiServer != null) {
+            this.apiServer.stop();
+        }
+
+        if (jda != null) {
+            if (discordManager != null) {
+                jda.removeEventListener(discordManager);
+            }
+            jda.shutdownNow();
+            long deadline = System.currentTimeMillis() + 5000L;
+            while (jda.getStatus() != net.dv8tion.jda.api.JDA.Status.SHUTDOWN && System.currentTimeMillis() < deadline) {
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException ignored) {}
+            }
+
+            jda = null;
+            discordManager = null;
+            stopDiscordStatusTask();
+            stopDiscordTopicTask();
+        }
+        com.h2ph.logger.ConsoleLifecycleLogger.logShutdownStep("Disconnecting Discord bot and Web API", "DONE");
 
         if (this.databaseManager != null) {
             this.databaseManager.shutdown();
         }
+        com.h2ph.logger.ConsoleLifecycleLogger.logShutdownStep("Closing database connection pool", "DONE");
 
-        if (this.schedulerAdapter != null) {
-            this.schedulerAdapter.shutdown();
-        }
-
-        org.bukkit.command.ConsoleCommandSender console = getServer().getConsoleSender();
-        console.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&', "&8&m--------------------------------------------------"));
-        console.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&', " &b&l[Falcon] &fhas been &c&lDISABLED"));
-        console.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&', "&8&m--------------------------------------------------"));
+        com.h2ph.logger.ConsoleLifecycleLogger.printShutdownFooter();
         instance = null;
     }
 
@@ -1204,80 +1222,7 @@ public class Falcon extends JavaPlugin {
     }
 
     private void saveAllResources() {
-        saveResourceSafely("economy/shop/config.yml");
-        saveResourceSafely("economy/spawner/config.yml");
-        saveResourceSafely("economy/shop/categories/end.yml");
-        saveResourceSafely("economy/shop/categories/food.yml");
-        saveResourceSafely("economy/shop/categories/gear.yml");
-        saveResourceSafely("economy/shop/categories/nether.yml");
-        saveResourceSafely("economy/shop/categories/redstone.yml");
-        saveResourceSafely("economy/shop/categories/shard.yml");
-        saveResourceSafely("survival/AFK/config.yml");
-        saveResourceSafely("survival/death/config.yml");
-        saveResourceSafely("survival/death/messages.yml");
-        saveResourceSafely("survival/api/config.yml");
-        saveResourceSafely("economy/config.yml");
-        saveResourceSafely("rtp/config.yml");
-        saveResourceSafely("crates/keys/config.yml");
-        saveResourceSafely("scoreboard/config.yml");
-        saveResourceSafely("survival/tierranks/config.yml");
-        saveResourceSafely("survival/checker/config.yml");
-        saveResourceSafely("messages/economy/balance.yml");
-        saveResourceSafely("messages/economy/auction.yml");
-        saveResourceSafely("messages/economy/order.yml");
-        saveResourceSafely("messages/economy/shop.yml");
-        saveResourceSafely("messages/economy/sell.yml");
-        saveResourceSafely("messages/economy/pay.yml");
-        saveResourceSafely("messages/economy/baltop.yml");
-        saveResourceSafely("messages/economy/billford.yml");
-        saveResourceSafely("messages/economy/bounty.yml");
-        saveResourceSafely("messages/economy/economy.yml");
-        saveResourceSafely("messages/economy/sellhistory.yml");
-        saveResourceSafely("messages/economy/shards.yml");
-        saveResourceSafely("messages/economy/spawner.yml");
-        saveResourceSafely("messages/economy/worth.yml");
-        saveResourceSafely("messages/homes/home.yml");
-        saveResourceSafely("messages/survival/tpa.yml");
-        saveResourceSafely("messages/survival/msg.yml");
-        saveResourceSafely("messages/survival/spawn.yml");
-        saveResourceSafely("messages/survival/warp.yml");
-        saveResourceSafely("messages/survival/rtp.yml");
-        saveResourceSafely("messages/survival/afk.yml");
-        saveResourceSafely("messages/survival/team.yml");
-        saveResourceSafely("messages/survival/ignore.yml");
-        saveResourceSafely("messages/survival/stats.yml");
-        saveResourceSafely("messages/survival/settings.yml");
-        saveResourceSafely("messages/survival/whereami.yml");
-        saveResourceSafely("messages/survival/nv.yml");
-        saveResourceSafely("messages/survival/fly.yml");
-        saveResourceSafely("messages/survival/rules.yml");
-        saveResourceSafely("messages/survival/media.yml");
-        saveResourceSafely("messages/survival/discord.yml");
-        saveResourceSafely("messages/survival/store.yml");
-        saveResourceSafely("messages/moderation/mute.yml");
-        saveResourceSafely("messages/moderation/vanish.yml");
-        saveResourceSafely("messages/moderation/spectator.yml");
-        saveResourceSafely("messages/moderation/invsee.yml");
-        saveResourceSafely("messages/moderation/checkalt.yml");
-        saveResourceSafely("messages/moderation/checkplayers.yml");
-        saveResourceSafely("messages/moderation/sus.yml");
-        saveResourceSafely("messages/moderation/setspawn.yml");
-        saveResourceSafely("messages/moderation/speed.yml");
-        saveResourceSafely("messages/moderation/announce.yml");
-        saveResourceSafely("messages/moderation/tp.yml");
-        saveResourceSafely("messages/moderation/checktotem.yml");
-        saveResourceSafely("messages/moderation/gamemode.yml");
-        saveResourceSafely("messages/moderation/hidename.yml");
-
-        // Anticheat configs and messages
-        saveResourceSafely("messages/anticheat/fly/messages.yml");
-        saveResourceSafely("messages/anticheat/speed/messages.yml");
-        saveResourceSafely("anticheat/fly/config.yml");
-        saveResourceSafely("anticheat/speed/config.yml");
-        saveResourceSafely("survival/messages/anticheat/fly/messages.yml");
-        saveResourceSafely("survival/messages/anticheat/speed/messages.yml");
-        saveResourceSafely("survival/anticheat/fly/config.yml");
-        saveResourceSafely("survival/anticheat/speed/config.yml");
+        com.falconcore.survival.utils.ConfigUpdater.updateAll(this);
 
         java.io.File queueFolder = new java.io.File(getDataFolder(), "rtp/queue");
         if (!queueFolder.exists()) {
@@ -1307,21 +1252,13 @@ public class Falcon extends JavaPlugin {
         }
     }
 
-    private void saveResourceSafely(String path) {
-        if (!new java.io.File(getDataFolder(), path).exists()) {
-            try {
-                saveResource(path, false);
-            } catch (Exception e) {
-                getLogger().warning("Failed to save resource: " + path);
-            }
-        }
+    public void saveResourceSafely(String path) {
+        com.falconcore.survival.utils.ConfigUpdater.update(this, path);
     }
 
     public void loadSurvivalConfig() {
+        saveResourceSafely("survival/config.yml");
         java.io.File file = new java.io.File(getDataFolder(), "survival/config.yml");
-        if (!file.exists()) {
-            saveResource("survival/config.yml", false);
-        }
         survivalConfig = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(file);
     }
 
@@ -1505,10 +1442,8 @@ public class Falcon extends JavaPlugin {
     private org.bukkit.configuration.file.FileConfiguration chatFilterConfig;
 
     public void loadChatFilterConfig() {
+        saveResourceSafely("survival/chatfilter/config.yml");
         java.io.File file = new java.io.File(getDataFolder(), "survival/chatfilter/config.yml");
-        if (!file.exists()) {
-            saveResourceSafely("survival/chatfilter/config.yml");
-        }
         chatFilterConfig = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(file);
     }
 
@@ -1601,97 +1536,16 @@ public class Falcon extends JavaPlugin {
         return damageManager;
     }
 
+    public com.falconcore.survival.death.DeathRecordManager getDeathRecordManager() {
+        return deathRecordManager;
+    }
+
+    public net.dv8tion.jda.api.JDA getJda() {
+        return jda;
+    }
+
     private void printStartupBanner() {
-        org.bukkit.command.ConsoleCommandSender console = getServer().getConsoleSender();
-        String version = getDescription().getVersion();
-        String author = getDescription().getAuthors().isEmpty() ? "h2ph" : String.join(", ", getDescription().getAuthors());
-
-        console.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&', "&8&m--------------------------------------------------"));
-        console.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&', " &b&l[Falcon] &bv" + version));
-        console.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&', " &fAuthor: &b" + author));
-        console.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&', " &fDiscord: &bSoon"));
-        console.sendMessage("");
-        console.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&', " &fStatus: &a&lEnabling Modules..."));
-        console.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&', "&8&m--------------------------------------------------"));
-        console.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&', "&f  &lMODULE STATUS:"));
-
-        if (databaseManager != null && databaseManager.isFlatfileMode()) {
-            console.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                    "&b  [+] &fDatabase System: &e&lYAML FLATFILE &7(database.enabled: false)"));
-        } else if (databaseManager != null && databaseManager.isConnected()) {
-            console.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                    "&b  [+] &fDatabase System: &a&lONLINE"));
-        } else {
-            String error = databaseManager.getConnectionError();
-            console.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                    "&b  [-] &fDatabase System: &c&lOFFLINE &7(" + (error != null ? error : "Data cannot be fetched")
-                            + ")"));
-        }
-
-        if (playerDataManager != null) {
-            console.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                    "&b  [+] &fEconomy System: &a&lONLINE &7(Falcon Direct)"));
-        } else {
-            console.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                    "&b  [-] &fEconomy System: &c&lOFFLINE"));
-        }
-
-        if (apiServer != null) {
-            console.sendMessage(
-                    org.bukkit.ChatColor.translateAlternateColorCodes('&', "&b  [+] &fWeb API Server: &a&lCONNECTED"));
-        } else {
-            console.sendMessage(
-                    org.bukkit.ChatColor.translateAlternateColorCodes('&', "&b  [-] &fWeb API Server: &c&lOFFLINE"));
-        }
-
-        if (offendPlugin != null) {
-            console.sendMessage(
-                    org.bukkit.ChatColor.translateAlternateColorCodes('&', "&b  [+] &fModeration Core: &a&lCONNECTED"));
-        }
-
-        if (jda != null && jda.getStatus() == net.dv8tion.jda.api.JDA.Status.CONNECTED) {
-            console.sendMessage(
-                    org.bukkit.ChatColor.translateAlternateColorCodes('&', "&b  [+] &fDiscord System: &a&lCONNECTED"));
-        } else {
-            console.sendMessage(
-                    org.bukkit.ChatColor.translateAlternateColorCodes('&', "&b  [-] &fDiscord System: &c&lOFFLINE"));
-        }
-
-        if (getServer().getPluginManager().getPlugin("WorldEdit") != null
-                || getServer().getPluginManager().getPlugin("FastAsyncWorldEdit") != null) {
-            console.sendMessage(
-                    org.bukkit.ChatColor.translateAlternateColorCodes('&', "&b  [+] &fWorldEdit Hook: &a&lCONNECTED"));
-        } else {
-            console.sendMessage(
-                    org.bukkit.ChatColor.translateAlternateColorCodes('&', "&b  [-] &fWorldEdit Hook: &c&lNOT FOUND"));
-        }
-        
-        if (getServer().getPluginManager().getPlugin("voicechat") != null) {
-            console.sendMessage(
-                    org.bukkit.ChatColor.translateAlternateColorCodes('&', "&b  [+] &fVoiceChat Hook: &a&lCONNECTED"));
-        } else {
-            console.sendMessage(
-                    org.bukkit.ChatColor.translateAlternateColorCodes('&', "&b  [-] &fVoiceChat Hook: &c&lNOT FOUND"));
-        }
-
-        if (checkerManager != null) {
-            console.sendMessage(
-                    org.bukkit.ChatColor.translateAlternateColorCodes('&', "&b  [+] &fClient & Cheat Checker: &a&lONLINE"));
-        } else {
-            console.sendMessage(
-                    org.bukkit.ChatColor.translateAlternateColorCodes('&', "&b  [-] &fClient & Cheat Checker: &c&lOFFLINE"));
-        }
-
-        if (antiCheatManager != null && antiCheatManager.isEnabled()) {
-            console.sendMessage(
-                    org.bukkit.ChatColor.translateAlternateColorCodes('&', "&b  [+] &fFalcon AntiCheat: &a&lONLINE"));
-        } else {
-            console.sendMessage(
-                    org.bukkit.ChatColor.translateAlternateColorCodes('&', "&b  [-] &fFalcon AntiCheat: &c&lOFFLINE"));
-        }
-
-        console.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                "&8&m--------------------------------------------------"));
+        com.h2ph.logger.ConsoleLifecycleLogger.printActiveSequence(this, 0);
     }
 
     private void registerDisguiseCommand() {

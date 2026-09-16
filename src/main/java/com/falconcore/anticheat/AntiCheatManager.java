@@ -7,6 +7,7 @@ import com.falconcore.anticheat.check.combat.ReachCheck;
 import com.falconcore.anticheat.check.interaction.FastUseCheck;
 import com.falconcore.anticheat.check.movement.*;
 import com.falconcore.anticheat.check.world.AirPlaceCheck;
+import com.falconcore.anticheat.check.world.AutoMineCheck;
 import com.falconcore.anticheat.check.world.ScaffoldCheck;
 import com.falconcore.anticheat.command.AntiCheatCommand;
 import com.falconcore.anticheat.data.PlayerData;
@@ -80,6 +81,7 @@ public class AntiCheatManager {
         registerCheck(new AirPlaceCheck(this));
         registerCheck(new ScaffoldCheck(this));
         registerCheck(new FastUseCheck(this));
+        registerCheck(new AutoMineCheck(this));
 
         this.listener = new AntiCheatListener(this);
         this.plugin.getServer().getPluginManager().registerEvents(this.listener, this.plugin);

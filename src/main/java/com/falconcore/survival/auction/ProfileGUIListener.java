@@ -17,6 +17,8 @@ import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import java.util.List;
+import java.util.ArrayList;
 
 public class ProfileGUIListener implements Listener {
 
@@ -41,8 +43,10 @@ public class ProfileGUIListener implements Listener {
         boolean isProfileLogs = topInv.getHolder() instanceof ProfileLogsGUI.ProfileLogsHolder;
         boolean isProfileAuction = topInv.getHolder() instanceof ProfileAuctionGUI.ProfileAuctionHolder;
         boolean isProfileAuctionConfirm = topInv.getHolder() instanceof ProfileAuctionGUI.ProfileAuctionConfirmHolder;
+        boolean isProfileDeathRecords = topInv.getHolder() instanceof ProfileDeathRecordsGUI.ProfileDeathRecordsHolder;
+        boolean isProfileDeathInventory = topInv.getHolder() instanceof ProfileDeathInventoryGUI.ProfileDeathInventoryHolder;
 
-        if (!isProfileMain && !isProfileHomes && !isProfileLogs && !isProfileInventory && !isProfileAuction && !isProfileAuctionConfirm)
+        if (!isProfileMain && !isProfileHomes && !isProfileLogs && !isProfileInventory && !isProfileAuction && !isProfileAuctionConfirm && !isProfileDeathRecords && !isProfileDeathInventory)
             return;
 
         if (isProfileInventory) {
@@ -57,6 +61,16 @@ public class ProfileGUIListener implements Listener {
 
         if (isProfileAuctionConfirm) {
             handleProfileAuctionConfirmClick(event, player);
+            return;
+        }
+
+        if (isProfileDeathInventory) {
+            handleProfileDeathInventoryClick(event, player);
+            return;
+        }
+
+        if (isProfileDeathRecords) {
+            handleProfileDeathRecordsClick(event, player);
             return;
         }
 
@@ -281,6 +295,15 @@ public class ProfileGUIListener implements Listener {
                     } catch (Exception e) {
                     }
                 }
+            }
+        }
+
+        if (slot == 21) {
+            ProfileCommand.ProfileHolder holder = (ProfileCommand.ProfileHolder) event.getView().getTopInventory().getHolder();
+            OfflinePlayer targetPlayer = holder.getTargetPlayer();
+
+            if (targetPlayer != null) {
+                ProfileDeathRecordsGUI.open(player, targetPlayer, 0);
             }
         }
     }
@@ -582,6 +605,176 @@ public class ProfileGUIListener implements Listener {
                     }
                 }, 1L);
             }
+            return;
+        }
+
+        // 8. Profile Death Records Sub-GUI
+        if (holder instanceof ProfileDeathRecordsGUI.ProfileDeathRecordsHolder recordsHolder) {
+            if (skipCloseReturn.remove(player.getUniqueId())) {
+                return;
+            }
+
+            OfflinePlayer targetPlayer = recordsHolder.getTargetPlayer();
+            if (targetPlayer != null) {
+                plugin.getSchedulerAdapter().runEntityTaskLater(player, () -> {
+                    if (player.isOnline()) {
+                        ProfileCommand.openProfileGUI(player, targetPlayer);
+                    }
+                }, 1L);
+            }
+            return;
+        }
+
+        // 9. Profile Death Inventory Sub-GUI
+        if (holder instanceof ProfileDeathInventoryGUI.ProfileDeathInventoryHolder deathInvHolder) {
+            if (skipCloseReturn.remove(player.getUniqueId())) {
+                return;
+            }
+
+            OfflinePlayer targetPlayer = deathInvHolder.getTargetPlayer();
+            if (targetPlayer != null) {
+                plugin.getSchedulerAdapter().runEntityTaskLater(player, () -> {
+                    if (player.isOnline()) {
+                        ProfileDeathRecordsGUI.open(player, targetPlayer, 0);
+                    }
+                }, 1L);
+            }
+        }
+    }
+
+    private void handleProfileDeathRecordsClick(InventoryClickEvent event, Player player) {
+        event.setCancelled(true);
+        int slot = event.getRawSlot();
+        if (!(event.getView().getTopInventory().getHolder() instanceof ProfileDeathRecordsGUI.ProfileDeathRecordsHolder holder)) {
+            return;
+        }
+
+        ItemStack current = event.getCurrentItem();
+        if (current != null && current.getType() != Material.AIR) {
+            player.playSound(player.getLocation(), Sound.BLOCK_TRIPWIRE_CLICK_ON, 1f, 1f);
+        }
+
+        OfflinePlayer targetPlayer = holder.getTargetPlayer();
+        int page = holder.getPage();
+        int totalPages = holder.getTotalPages();
+        List<com.falconcore.survival.death.DeathRecord> records = holder.getAllRecords();
+
+        if (slot >= 0 && slot < ProfileDeathRecordsGUI.ITEMS_PER_PAGE) {
+            int recordIndex = page * ProfileDeathRecordsGUI.ITEMS_PER_PAGE + slot;
+            if (recordIndex < records.size()) {
+                com.falconcore.survival.death.DeathRecord selectedRecord = records.get(recordIndex);
+                skipCloseReturn.add(player.getUniqueId());
+                ProfileDeathInventoryGUI.open(player, targetPlayer, selectedRecord);
+            }
+            return;
+        }
+
+        if (slot == 45) {
+            if (page > 0) {
+                skipCloseReturn.add(player.getUniqueId());
+                ProfileDeathRecordsGUI.open(player, targetPlayer, page - 1);
+            }
+        } else if (slot == 49) {
+            if (targetPlayer != null) {
+                skipCloseReturn.add(player.getUniqueId());
+                ProfileCommand.openProfileGUI(player, targetPlayer);
+            }
+        } else if (slot == 53) {
+            if (page < totalPages - 1) {
+                skipCloseReturn.add(player.getUniqueId());
+                ProfileDeathRecordsGUI.open(player, targetPlayer, page + 1);
+            }
+        }
+    }
+
+    private void handleProfileDeathInventoryClick(InventoryClickEvent event, Player player) {
+        event.setCancelled(true);
+        int slot = event.getRawSlot();
+        if (!(event.getView().getTopInventory().getHolder() instanceof ProfileDeathInventoryGUI.ProfileDeathInventoryHolder holder)) {
+            return;
+        }
+
+        OfflinePlayer targetPlayer = holder.getTargetPlayer();
+        com.falconcore.survival.death.DeathRecord record = holder.getDeathRecord();
+
+        if (slot == 45) {
+            player.playSound(player.getLocation(), Sound.BLOCK_TRIPWIRE_CLICK_ON, 1f, 1f);
+            skipCloseReturn.add(player.getUniqueId());
+            ProfileDeathRecordsGUI.open(player, targetPlayer, 0);
+            return;
+        }
+
+        if (slot == 49) {
+            // Admin Extraction & Refund
+            boolean isStaff = player.isOp() || player.hasPermission("falcon.admin") || player.hasPermission("falcon.profile");
+            if (!isStaff) {
+                player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                        net.md_5.bungee.api.chat.TextComponent.fromLegacyText(Utils.formatColors("&cYou do not have permission to extract items.")));
+                try {
+                    player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1f, 1f);
+                } catch (Exception ignored) {}
+                return;
+            }
+
+            ItemStack[] rawItems = record.getItems();
+            List<ItemStack> validItems = new ArrayList<>();
+            for (ItemStack it : rawItems) {
+                if (it != null && it.getType() != Material.AIR) {
+                    validItems.add(it.clone());
+                }
+            }
+
+            if (validItems.isEmpty()) {
+                player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                        net.md_5.bungee.api.chat.TextComponent.fromLegacyText(Utils.formatColors("&cThere are no items to extract in this death record.")));
+                try {
+                    player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1f, 1f);
+                } catch (Exception ignored) {}
+                return;
+            }
+
+            String targetName = targetPlayer.getName() != null ? targetPlayer.getName() : "Player";
+            int totalChests = (int) Math.ceil((double) validItems.size() / 27.0);
+
+            for (int chunkIndex = 0; chunkIndex < totalChests; chunkIndex++) {
+                int start = chunkIndex * 27;
+                int end = Math.min(start + 27, validItems.size());
+                List<ItemStack> chunk = validItems.subList(start, end);
+
+                ItemStack chestItem = new ItemStack(Material.CHEST);
+                org.bukkit.inventory.meta.BlockStateMeta bsm = (org.bukkit.inventory.meta.BlockStateMeta) chestItem.getItemMeta();
+                if (bsm != null) {
+                    org.bukkit.block.Chest chestState = (org.bukkit.block.Chest) bsm.getBlockState();
+                    for (int i = 0; i < chunk.size(); i++) {
+                        chestState.getBlockInventory().setItem(i, chunk.get(i));
+                    }
+                    chestState.setCustomName((chunkIndex + 1) + ". " + targetName);
+                    bsm.setBlockState(chestState);
+
+                    bsm.setDisplayName(Utils.formatColors("&e" + (chunkIndex + 1) + ". &f" + targetName));
+                    List<String> chestLore = new ArrayList<>();
+                    chestLore.add(Utils.formatColors("&7Contains lost items from death record"));
+                    chestLore.add(Utils.formatColors("&7Player: &f" + targetName));
+                    chestLore.add(Utils.formatColors("&7Items: &e" + chunk.size()));
+                    chestLore.add(Utils.formatColors("&7Place down to retrieve items."));
+                    bsm.setLore(chestLore);
+
+                    chestItem.setItemMeta(bsm);
+                }
+
+                java.util.Map<Integer, ItemStack> leftover = player.getInventory().addItem(chestItem);
+                for (ItemStack leftoverItem : leftover.values()) {
+                    player.getWorld().dropItemNaturally(player.getLocation(), leftoverItem);
+                }
+            }
+
+            try {
+                player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f, 1f);
+            } catch (Exception ignored) {}
+
+            player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                    net.md_5.bungee.api.chat.TextComponent.fromLegacyText(Utils.formatColors("&aSuccessfully extracted &e" + totalChests + " &arefund chest(s)!")));
+            player.sendMessage(Utils.formatColors("&aExtracted &e" + totalChests + " &arefund chest(s) containing items for &f" + targetName + "&a."));
         }
     }
 

@@ -7,6 +7,7 @@ import com.falconcore.anticheat.check.combat.CriticalsCheck;
 import com.falconcore.anticheat.check.combat.ReachCheck;
 import com.falconcore.anticheat.check.interaction.FastUseCheck;
 import com.falconcore.anticheat.check.world.AirPlaceCheck;
+import com.falconcore.anticheat.check.world.AutoMineCheck;
 import com.falconcore.anticheat.check.world.ScaffoldCheck;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -36,12 +37,15 @@ public class AntiCheatListener implements Listener {
         Location to = event.getTo();
         if (to == null) return;
 
+        Player player = event.getPlayer();
+        PlayerData data = manager.getOrCreatePlayerData(player);
+
+        // Record look sample for rotation history and ping-compensated raycasting
+        data.recordLook(player.getEyeLocation());
+
         if (from.getX() == to.getX() && from.getY() == to.getY() && from.getZ() == to.getZ()) {
             return;
         }
-
-        Player player = event.getPlayer();
-        PlayerData data = manager.getOrCreatePlayerData(player);
 
         data.updateMove(from, to);
 
@@ -357,6 +361,7 @@ public class AntiCheatListener implements Listener {
         if (!manager.isEnabled()) return;
         Player player = event.getPlayer();
         PlayerData data = manager.getOrCreatePlayerData(player);
+        data.recordLook(player.getEyeLocation());
 
         Check reachCheck = manager.getCheck("reach");
         if (reachCheck instanceof ReachCheck rc && reachCheck.isEnabled()) {
@@ -400,23 +405,19 @@ public class AntiCheatListener implements Listener {
         if (reachCheck instanceof ReachCheck rc && reachCheck.isEnabled()) {
             rc.handleBlockBreak(player, data, event.getBlock(), event);
         }
+
+        Check autoMineCheck = manager.getCheck("automine");
+        if (autoMineCheck instanceof AutoMineCheck amc && autoMineCheck.isEnabled()) {
+            amc.handleBlockBreak(player, data, event.getBlock(), event);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGH)
     public void onPlayerInteract(PlayerInteractEvent event) {
         if (!manager.isEnabled()) return;
-        Player player = event.getPlayer();
-        PlayerData data = manager.getOrCreatePlayerData(player);
-
-        if (event.hasBlock() && event.getClickedBlock() != null) {
-            Check reachCheck = manager.getCheck("reach");
-            if (reachCheck instanceof ReachCheck rc && reachCheck.isEnabled()) {
-                rc.handleInteractBlock(player, data, event.getClickedBlock(), event);
-            }
-        }
-
         if (event.isCancelled()) return;
 
+        Player player = event.getPlayer();
         Action action = event.getAction();
         if (action == Action.RIGHT_CLICK_AIR || action == Action.RIGHT_CLICK_BLOCK) {
             Check fastUseCheck = manager.getCheck("fastuse");
@@ -477,6 +478,14 @@ public class AntiCheatListener implements Listener {
         Check fastUseCheck = manager.getCheck("fastuse");
         if (fastUseCheck instanceof FastUseCheck fuc) {
             fuc.reset(event.getPlayer().getUniqueId());
+        }
+        Check autoMineCheck = manager.getCheck("automine");
+        if (autoMineCheck instanceof AutoMineCheck amc) {
+            amc.removePlayer(event.getPlayer().getUniqueId());
+        }
+        Check scaffoldCheck = manager.getCheck("scaffold");
+        if (scaffoldCheck instanceof ScaffoldCheck sc) {
+            sc.removePlayer(event.getPlayer().getUniqueId());
         }
     }
 }
