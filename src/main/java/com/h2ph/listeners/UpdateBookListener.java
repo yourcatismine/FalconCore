@@ -102,6 +102,9 @@ public class UpdateBookListener implements Listener {
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent e) {
         Player p = e.getPlayer();
+        if (plugin.getFalconBotManager() != null && (plugin.getFalconBotManager().isBot(p.getUniqueId()) || plugin.getFalconBotManager().isBot(p.getName()))) {
+            return;
+        }
         if (!plugin.hasActiveUpdate())
             return;
 

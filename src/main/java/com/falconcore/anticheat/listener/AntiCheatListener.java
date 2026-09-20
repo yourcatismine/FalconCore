@@ -469,11 +469,21 @@ public class AntiCheatListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
+        if (manager.getPlugin().getFalconBotManager() != null && 
+            (manager.getPlugin().getFalconBotManager().isBot(event.getPlayer().getUniqueId()) || 
+             manager.getPlugin().getFalconBotManager().isBot(event.getPlayer().getName()))) {
+            return;
+        }
         manager.getOrCreatePlayerData(event.getPlayer());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
+        if (manager.getPlugin().getFalconBotManager() != null && 
+            (manager.getPlugin().getFalconBotManager().isBot(event.getPlayer().getUniqueId()) || 
+             manager.getPlugin().getFalconBotManager().isBot(event.getPlayer().getName()))) {
+            return;
+        }
         manager.removePlayerData(event.getPlayer().getUniqueId());
         Check fastUseCheck = manager.getCheck("fastuse");
         if (fastUseCheck instanceof FastUseCheck fuc) {

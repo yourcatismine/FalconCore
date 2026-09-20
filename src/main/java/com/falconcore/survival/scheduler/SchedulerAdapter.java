@@ -42,27 +42,19 @@ public class SchedulerAdapter {
 
     public void runTask(Runnable task) {
         if (plugin == null || !plugin.isEnabled() || task == null) {
-            if (task != null) {
-                task.run();
-            }
             return;
         }
         try {
             Bukkit.getGlobalRegionScheduler().run(plugin, scheduledTask -> task.run());
-        } catch (NoSuchMethodError | NoClassDefFoundError e) {
-            Bukkit.getScheduler().runTask(plugin, task);
+        } catch (Throwable e) {
+            try {
+                Bukkit.getScheduler().runTask(plugin, task);
+            } catch (Throwable ignored) {}
         }
     }
 
     public void runTaskAsync(Runnable task) {
         if (plugin == null || !plugin.isEnabled() || task == null) {
-            if (task != null && plugin != null) {
-                try {
-                    task.run();
-                } catch (Exception e) {
-                    plugin.getLogger().warning("Error executing fallback task: " + e.getMessage());
-                }
-            }
             return;
         }
         
@@ -71,14 +63,18 @@ public class SchedulerAdapter {
                 try {
                     task.run();
                 } catch (Exception e) {
-                    plugin.getLogger().warning("Error in bounded async task: " + e.getMessage());
+                    if (plugin != null && plugin.isEnabled()) {
+                        plugin.getLogger().warning("Error in bounded async task: " + e.getMessage());
+                    }
                 }
             });
         } else {
             try {
                 task.run();
             } catch (Exception ex) {
-                plugin.getLogger().warning("Failed to execute emergency task: " + ex.getMessage());
+                if (plugin != null && plugin.isEnabled()) {
+                    plugin.getLogger().warning("Failed to execute emergency task: " + ex.getMessage());
+                }
             }
         }
     }
@@ -95,8 +91,12 @@ public class SchedulerAdapter {
             Object scheduledTask = Bukkit.getGlobalRegionScheduler().runDelayed(plugin, st -> task.run(),
                     delayTicks);
             return new FoliaBukkitTaskWrapper(scheduledTask);
-        } catch (NoSuchMethodError | NoClassDefFoundError e) {
-            return Bukkit.getScheduler().runTaskLater(plugin, task, delayTicks);
+        } catch (Throwable e) {
+            try {
+                return Bukkit.getScheduler().runTaskLater(plugin, task, delayTicks);
+            } catch (Throwable ignored) {
+                return null;
+            }
         }
     }
 
@@ -107,8 +107,10 @@ public class SchedulerAdapter {
         try {
             Bukkit.getAsyncScheduler().runDelayed(plugin, st -> task.run(), delayTicks * 50,
                     java.util.concurrent.TimeUnit.MILLISECONDS);
-        } catch (NoSuchMethodError | NoClassDefFoundError e) {
-            Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, task, delayTicks);
+        } catch (Throwable e) {
+            try {
+                Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, task, delayTicks);
+            } catch (Throwable ignored) {}
         }
     }
 
@@ -121,8 +123,12 @@ public class SchedulerAdapter {
             Object scheduledTask = Bukkit.getGlobalRegionScheduler().runAtFixedRate(plugin,
                     st -> task.run(), actualDelay, periodTicks);
             return new FoliaBukkitTaskWrapper(scheduledTask);
-        } catch (NoSuchMethodError | NoClassDefFoundError e) {
-            return Bukkit.getScheduler().runTaskTimer(plugin, task, delayTicks, periodTicks);
+        } catch (Throwable e) {
+            try {
+                return Bukkit.getScheduler().runTaskTimer(plugin, task, delayTicks, periodTicks);
+            } catch (Throwable ignored) {
+                return null;
+            }
         }
     }
 
@@ -135,67 +141,92 @@ public class SchedulerAdapter {
             Object scheduledTask = Bukkit.getAsyncScheduler().runAtFixedRate(plugin,
                     st -> task.run(), actualDelayMs, periodTicks * 50, java.util.concurrent.TimeUnit.MILLISECONDS);
             return new FoliaBukkitTaskWrapper(scheduledTask);
-        } catch (NoSuchMethodError | NoClassDefFoundError e) {
-            return Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, task, delayTicks, periodTicks);
+        } catch (Throwable e) {
+            try {
+                return Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, task, delayTicks, periodTicks);
+            } catch (Throwable ignored) {
+                return null;
+            }
         }
     }
 
     public void runEntityTask(org.bukkit.entity.Entity entity, Runnable task) {
+        if (plugin == null || !plugin.isEnabled() || entity == null || task == null) return;
         try {
             entity.getScheduler().run(plugin, st -> task.run(), null);
-        } catch (NoSuchMethodError | NoClassDefFoundError e) {
-            Bukkit.getScheduler().runTask(plugin, task);
+        } catch (Throwable e) {
+            try {
+                Bukkit.getScheduler().runTask(plugin, task);
+            } catch (Throwable ignored) {}
         }
     }
 
     public void runEntityTaskLater(org.bukkit.entity.Entity entity, Runnable task, long delayTicks) {
+        if (plugin == null || !plugin.isEnabled() || entity == null || task == null) return;
         try {
             entity.getScheduler().runDelayed(plugin, st -> task.run(), null, delayTicks);
-        } catch (NoSuchMethodError | NoClassDefFoundError e) {
-            Bukkit.getScheduler().runTaskLater(plugin, task, delayTicks);
+        } catch (Throwable e) {
+            try {
+                Bukkit.getScheduler().runTaskLater(plugin, task, delayTicks);
+            } catch (Throwable ignored) {}
         }
     }
 
     public BukkitTask runEntityTaskTimer(org.bukkit.entity.Entity entity, Runnable task, long delayTicks,
             long periodTicks) {
+        if (plugin == null || !plugin.isEnabled() || entity == null || task == null) return null;
         try {
             long actualDelay = Math.max(1L, delayTicks);
             Object scheduledTask = entity.getScheduler().runAtFixedRate(plugin, st -> task.run(), null, actualDelay,
                     periodTicks);
             return new FoliaBukkitTaskWrapper(scheduledTask);
-        } catch (NoSuchMethodError | NoClassDefFoundError e) {
-            return Bukkit.getScheduler().runTaskTimer(plugin, task, delayTicks, periodTicks);
+        } catch (Throwable e) {
+            try {
+                return Bukkit.getScheduler().runTaskTimer(plugin, task, delayTicks, periodTicks);
+            } catch (Throwable ignored) {
+                return null;
+            }
         }
     }
 
     public void runAtLocation(org.bukkit.Location location, Runnable task) {
-        if (location == null || location.getWorld() == null || task == null) return;
+        if (plugin == null || !plugin.isEnabled() || location == null || location.getWorld() == null || task == null) return;
         try {
             Bukkit.getRegionScheduler().execute(plugin, location, task);
-        } catch (NoSuchMethodError | NoClassDefFoundError e) {
-            Bukkit.getScheduler().runTask(plugin, task);
+        } catch (Throwable e) {
+            try {
+                Bukkit.getScheduler().runTask(plugin, task);
+            } catch (Throwable ignored) {}
         }
     }
 
     public BukkitTask runAtLocationLater(org.bukkit.Location location, Runnable task, long delayTicks) {
-        if (location == null || location.getWorld() == null || task == null) return null;
+        if (plugin == null || !plugin.isEnabled() || location == null || location.getWorld() == null || task == null) return null;
         try {
             long actualDelay = Math.max(1L, delayTicks);
             Object scheduledTask = Bukkit.getRegionScheduler().runDelayed(plugin, location, st -> task.run(), actualDelay);
             return new FoliaBukkitTaskWrapper(scheduledTask);
-        } catch (NoSuchMethodError | NoClassDefFoundError e) {
-            return Bukkit.getScheduler().runTaskLater(plugin, task, delayTicks);
+        } catch (Throwable e) {
+            try {
+                return Bukkit.getScheduler().runTaskLater(plugin, task, delayTicks);
+            } catch (Throwable ignored) {
+                return null;
+            }
         }
     }
 
     public BukkitTask runAtLocationTimer(org.bukkit.Location location, Runnable task, long delayTicks, long periodTicks) {
-        if (location == null || location.getWorld() == null || task == null) return null;
+        if (plugin == null || !plugin.isEnabled() || location == null || location.getWorld() == null || task == null) return null;
         try {
             long actualDelay = Math.max(1L, delayTicks);
             Object scheduledTask = Bukkit.getRegionScheduler().runAtFixedRate(plugin, location, st -> task.run(), actualDelay, periodTicks);
             return new FoliaBukkitTaskWrapper(scheduledTask);
-        } catch (NoSuchMethodError | NoClassDefFoundError e) {
-            return Bukkit.getScheduler().runTaskTimer(plugin, task, delayTicks, periodTicks);
+        } catch (Throwable e) {
+            try {
+                return Bukkit.getScheduler().runTaskTimer(plugin, task, delayTicks, periodTicks);
+            } catch (Throwable ignored) {
+                return null;
+            }
         }
     }
 
@@ -246,7 +277,7 @@ public class SchedulerAdapter {
                 cancel.setAccessible(true);
                 cancel.invoke(foliaTask);
             } catch (Exception e) {
-                e.printStackTrace();
+                // Silently ignore during shutdown
             }
         }
     }

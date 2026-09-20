@@ -11,7 +11,6 @@ import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
-import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.HashMap;
@@ -19,21 +18,25 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 public class RTPManager {
 
-    private static final Map<UUID, Location> initialLocations = new HashMap<>();
-    private static final Map<UUID, org.bukkit.scheduler.BukkitTask> countdownTasks = new HashMap<>();
-    private static final Map<UUID, Long> cooldowns = new HashMap<>();
+    private static final Map<UUID, Location> initialLocations = new ConcurrentHashMap<>();
+    private static final Map<UUID, org.bukkit.scheduler.BukkitTask> countdownTasks = new ConcurrentHashMap<>();
+    private static final Map<UUID, Integer> activeSessionIds = new ConcurrentHashMap<>();
+    private static final Map<UUID, Long> cooldowns = new ConcurrentHashMap<>();
     private static final Random random = new Random();
 
     public static boolean isTeleporting(Player player) {
-        return countdownTasks.containsKey(player.getUniqueId());
+        if (player == null) return false;
+        return activeSessionIds.containsKey(player.getUniqueId()) || countdownTasks.containsKey(player.getUniqueId());
     }
 
     public static boolean isOnCooldown(Player player) {
+        if (player == null) return false;
         if (cooldowns.containsKey(player.getUniqueId())) {
             return cooldowns.get(player.getUniqueId()) > System.currentTimeMillis();
         }
@@ -46,6 +49,8 @@ public class RTPManager {
     }
 
     public static void teleport(Player player, String region, String worldType) {
+        if (player == null || !player.isOnline()) return;
+
         if (cooldowns.containsKey(player.getUniqueId())) {
             long expiry = cooldowns.get(player.getUniqueId());
             long remaining = expiry - System.currentTimeMillis();
@@ -63,7 +68,7 @@ public class RTPManager {
             }
         }
 
-        if (countdownTasks.containsKey(player.getUniqueId())) {
+        if (isTeleporting(player)) {
             String msg = org.bukkit.ChatColor.translateAlternateColorCodes('&', "&cYou are already teleporting!");
             player.sendMessage(msg);
             player.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(msg));
@@ -74,8 +79,9 @@ public class RTPManager {
 
         player.closeInventory();
 
-        initialLocations.put(player.getUniqueId(), player.getLocation());
-        startCountdown(player, region, worldType);
+        int sessionToken = activeSessionIds.compute(player.getUniqueId(), (k, v) -> v == null ? 1 : v + 1);
+        initialLocations.put(player.getUniqueId(), player.getLocation().clone());
+        startCountdown(player, region, worldType, sessionToken);
     }
 
     public static void teleportInstant(Player player, String region, String worldType) {
@@ -83,28 +89,82 @@ public class RTPManager {
     }
 
     public static void teleportInstant(Player player, String region, String worldType, boolean silent) {
+        if (player == null || !player.isOnline()) return;
+
         if (!silent) {
             player.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent
                     .fromLegacyText(org.bukkit.ChatColor.translateAlternateColorCodes('&', "&7Teleporting...")));
         }
-        calculateLocation(player, region, worldType, (target) -> {
+        Falcon main = JavaPlugin.getPlugin(Falcon.class);
+        int sessionToken = activeSessionIds.compute(player.getUniqueId(), (k, v) -> v == null ? 1 : v + 1);
+        initialLocations.put(player.getUniqueId(), player.getLocation().clone());
+
+        calculateLocation(player, region, worldType, sessionToken, (target) -> {
+            Integer activeToken = activeSessionIds.get(player.getUniqueId());
+            if (activeToken == null || activeToken != sessionToken) {
+                return;
+            }
+
             if (target != null) {
-                player.teleportAsync(target);
+                if (main.getGtaCameraManager() != null) {
+                    main.getGtaCameraManager().startCameraSequence(player, target, success -> {
+                        activeSessionIds.remove(player.getUniqueId());
+                        initialLocations.remove(player.getUniqueId());
+                        if (success) {
+                            String successMsg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                                    "&7You teleported to a random location");
+                            player.sendMessage(successMsg);
+                            player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
+                                    TextComponent.fromLegacyText(successMsg));
+                            player.playSound(player.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 1f, 1f);
+                            cooldowns.put(player.getUniqueId(), System.currentTimeMillis() + 15000L);
+                        } else {
+                            player.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                                    "&cTeleport failed unexpectly."));
+                        }
+                    });
+                } else {
+                    player.teleportAsync(target).thenAccept(success -> {
+                        activeSessionIds.remove(player.getUniqueId());
+                        initialLocations.remove(player.getUniqueId());
+                        if (success) {
+                            String successMsg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                                    "&7You teleported to a random location");
+                            player.sendMessage(successMsg);
+                            player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
+                                    TextComponent.fromLegacyText(successMsg));
+                            player.playSound(player.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 1f, 1f);
+                            cooldowns.put(player.getUniqueId(), System.currentTimeMillis() + 15000L);
+                        } else {
+                            player.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                                    "&cTeleport failed unexpectly."));
+                        }
+                    });
+                }
+            } else {
+                cleanup(player);
+                player.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                        "&cCould not find a safe location. Please try again."));
             }
         });
     }
 
-    private static void startCountdown(Player player, String region, String worldType) {
+    private static void startCountdown(Player player, String region, String worldType, int sessionToken) {
         Falcon main = JavaPlugin.getPlugin(Falcon.class);
 
-        java.util.concurrent.atomic.AtomicInteger count = new java.util.concurrent.atomic.AtomicInteger(5);
+        AtomicInteger count = new AtomicInteger(5);
 
-        org.bukkit.scheduler.BukkitTask task = main.getSchedulerAdapter().runTaskTimer(() -> {
-            if (!countdownTasks.containsKey(player.getUniqueId())) {
+        org.bukkit.scheduler.BukkitTask task = main.getSchedulerAdapter().runEntityTaskTimer(player, () -> {
+            Integer activeToken = activeSessionIds.get(player.getUniqueId());
+            if (activeToken == null || activeToken != sessionToken) {
+                org.bukkit.scheduler.BukkitTask t = countdownTasks.remove(player.getUniqueId());
+                if (t != null) {
+                    t.cancel();
+                }
                 return;
             }
 
-            if (!initialLocations.containsKey(player.getUniqueId()) || hasMoved(player)) {
+            if (hasMoved(player)) {
                 cancelTeleport(player, "&cTeleport cancelled because you moved.");
                 return;
             }
@@ -129,31 +189,69 @@ public class RTPManager {
                 player.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent
                         .fromLegacyText(org.bukkit.ChatColor.translateAlternateColorCodes('&', "&7Teleporting...")));
 
-                calculateLocation(player, region, worldType, (target) -> {
-                    if (target == null) {
-                        return;
+                calculateLocation(player, region, worldType, sessionToken, (target) -> {
+                    Integer currentActiveToken = activeSessionIds.get(player.getUniqueId());
+                    if (currentActiveToken == null || currentActiveToken != sessionToken) {
+                        return; // Teleport was cancelled while calculating location!
                     }
+
                     if (hasMoved(player)) {
                         cancelTeleport(player, "&cTeleport cancelled because you moved.");
                         return;
                     }
 
-                    cleanup(player);
-                    player.teleportAsync(target).thenAccept(success -> {
-                        if (success) {
-                            String successMsg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                                    "&7You teleported to a random location");
-                            player.sendMessage(successMsg);
-                            player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                                    TextComponent.fromLegacyText(successMsg));
-                            player.playSound(player.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 1f, 1f);
+                    if (!player.isOnline()) {
+                        cleanup(player);
+                        return;
+                    }
 
-                            cooldowns.put(player.getUniqueId(), System.currentTimeMillis() + 15000L);
-                        } else {
-                            player.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                                    "&cTeleport failed unexpectly."));
-                        }
-                    });
+                    if (target == null) {
+                        cancelTeleport(player, "&cCould not find a safe location. Please try again.");
+                        return;
+                    }
+
+                    // Stop countdown task and initial location tracking
+                    org.bukkit.scheduler.BukkitTask t = countdownTasks.remove(player.getUniqueId());
+                    if (t != null) {
+                        t.cancel();
+                    }
+                    initialLocations.remove(player.getUniqueId());
+
+                    if (main.getGtaCameraManager() != null) {
+                        main.getGtaCameraManager().startCameraSequence(player, target, success -> {
+                            activeSessionIds.remove(player.getUniqueId());
+                            if (success) {
+                                String successMsg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                                    "&7You teleported to a random location");
+                                player.sendMessage(successMsg);
+                                player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
+                                        TextComponent.fromLegacyText(successMsg));
+                                player.playSound(player.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 1f, 1f);
+
+                                cooldowns.put(player.getUniqueId(), System.currentTimeMillis() + 15000L);
+                            } else {
+                                player.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                                        "&cTeleport failed unexpectly."));
+                            }
+                        });
+                    } else {
+                        player.teleportAsync(target).thenAccept(success -> {
+                            activeSessionIds.remove(player.getUniqueId());
+                            if (success) {
+                                String successMsg = org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                                        "&7You teleported to a random location");
+                                player.sendMessage(successMsg);
+                                player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
+                                        TextComponent.fromLegacyText(successMsg));
+                                player.playSound(player.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 1f, 1f);
+
+                                cooldowns.put(player.getUniqueId(), System.currentTimeMillis() + 15000L);
+                            } else {
+                                player.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                                        "&cTeleport failed unexpectly."));
+                            }
+                        });
+                    }
                 });
             }
         }, 1L, 20L);
@@ -162,21 +260,34 @@ public class RTPManager {
     }
 
     public static void calculateLocation(Player player, String region, String worldType,
-            java.util.function.Consumer<Location> callback) {
-        findSafeLocation(player, region, worldType, 0, callback);
+            Consumer<Location> callback) {
+        Integer token = activeSessionIds.get(player != null ? player.getUniqueId() : null);
+        calculateLocation(player, region, worldType, token, callback);
+    }
+
+    public static void calculateLocation(Player player, String region, String worldType, Integer sessionToken,
+            Consumer<Location> callback) {
+        findSafeLocation(player, region, worldType, 0, sessionToken, callback);
     }
 
     private static boolean hasMoved(Player player) {
+        if (player == null) return false;
         Location initial = initialLocations.get(player.getUniqueId());
+        if (initial == null || initial.getWorld() == null) {
+            return false;
+        }
         Location current = player.getLocation();
-        return initial.getWorld() != current.getWorld() ||
+        if (current == null || current.getWorld() == null) {
+            return false;
+        }
+        return !initial.getWorld().equals(current.getWorld()) ||
                 initial.getBlockX() != current.getBlockX() ||
                 initial.getBlockZ() != current.getBlockZ() ||
                 Math.abs(initial.getBlockY() - current.getBlockY()) > 2;
     }
 
     private static void cancelTeleport(Player player, String reason) {
-        if (reason != null) {
+        if (player != null && reason != null) {
             String coloredReason = org.bukkit.ChatColor.translateAlternateColorCodes('&', reason);
             player.sendMessage(coloredReason);
             player.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(coloredReason));
@@ -186,23 +297,35 @@ public class RTPManager {
     }
 
     private static void cleanup(Player player) {
-        initialLocations.remove(player.getUniqueId());
-        org.bukkit.scheduler.BukkitTask task = countdownTasks.remove(player.getUniqueId());
+        if (player == null) return;
+        UUID uuid = player.getUniqueId();
+        activeSessionIds.remove(uuid);
+        initialLocations.remove(uuid);
+        org.bukkit.scheduler.BukkitTask task = countdownTasks.remove(uuid);
         if (task != null) {
             task.cancel();
+        }
+        Falcon main = JavaPlugin.getPlugin(Falcon.class);
+        if (main.getGtaCameraManager() != null && main.getGtaCameraManager().isAnimating(player)) {
+            main.getGtaCameraManager().cancelCameraSequence(uuid);
         }
     }
 
     private static void findSafeLocation(Player player, String region, String worldType, int attempts,
-            java.util.function.Consumer<Location> callback) {
+            Integer sessionToken, Consumer<Location> callback) {
         Falcon main = JavaPlugin.getPlugin(Falcon.class);
         FileConfiguration rtpConfig = main.getRTPRegionConfig(region);
         FileConfiguration globalConfig = main.getGlobalRTPConfig();
 
+        if (sessionToken != null) {
+            Integer currentToken = activeSessionIds.get(player != null ? player.getUniqueId() : null);
+            if (currentToken == null || !currentToken.equals(sessionToken)) {
+                if (callback != null) callback.accept(null);
+                return;
+            }
+        }
+
         if (rtpConfig == null || globalConfig == null || attempts >= 10) {
-            player.sendMessage(org.bukkit.ChatColor.translateAlternateColorCodes('&',
-                    "&cCould not find a safe location. Please try again."));
-            cleanup(player);
             if (callback != null)
                 callback.accept(null);
             return;
@@ -210,7 +333,6 @@ public class RTPManager {
 
         String worldName = rtpConfig.getString("worlds." + worldType + ".world");
         if (worldName == null) {
-            cleanup(player);
             if (callback != null)
                 callback.accept(null);
             return;
@@ -220,14 +342,12 @@ public class RTPManager {
         if (world == null) {
             main.getLogger().warning(
                     "[RTP] Could not find world: " + worldName + ". Please check rtp/" + region + "/config.yml");
-            cleanup(player);
             if (callback != null)
                 callback.accept(null);
             return;
         }
 
         if (!player.isOnline()) {
-            cleanup(player);
             if (callback != null)
                 callback.accept(null);
             return;
@@ -243,10 +363,21 @@ public class RTPManager {
 
         world.getChunkAtAsync(x >> 4, z >> 4).thenAccept(chunk -> {
             if (!player.isOnline()) {
-                cleanup(player);
-                if (callback != null)
-                    callback.accept(null);
+                main.getSchedulerAdapter().runEntityTask(player, () -> {
+                    if (callback != null)
+                        callback.accept(null);
+                });
                 return;
+            }
+
+            if (sessionToken != null) {
+                Integer currentToken = activeSessionIds.get(player.getUniqueId());
+                if (currentToken == null || !currentToken.equals(sessionToken)) {
+                    main.getSchedulerAdapter().runEntityTask(player, () -> {
+                        if (callback != null) callback.accept(null);
+                    });
+                    return;
+                }
             }
 
             List<String> blacklist = globalConfig.getStringList("blacklisted-blocks");
@@ -274,18 +405,20 @@ public class RTPManager {
                 }
             }
 
-            if (target != null) {
-                if (callback != null)
-                    callback.accept(target);
+            final Location finalTarget = target;
+            if (finalTarget != null) {
+                main.getSchedulerAdapter().runEntityTask(player, () -> {
+                    if (callback != null)
+                        callback.accept(finalTarget);
+                });
             } else {
-                // Need to schedule on global or main scheduler to avoid stack overflow or
                 main.getSchedulerAdapter().runTaskLater(() -> {
-                    findSafeLocation(player, region, worldType, attempts + 1, callback);
+                    findSafeLocation(player, region, worldType, attempts + 1, sessionToken, callback);
                 }, 1L);
             }
         }).exceptionally(e -> {
             main.getSchedulerAdapter().runTaskLater(() -> {
-                findSafeLocation(player, region, worldType, attempts + 1, callback);
+                findSafeLocation(player, region, worldType, attempts + 1, sessionToken, callback);
             }, 1L);
             return null;
         });

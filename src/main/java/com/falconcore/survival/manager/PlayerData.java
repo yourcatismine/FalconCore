@@ -404,6 +404,15 @@ public class PlayerData {
 
     private boolean tpAuto = false;
     private boolean respawnRTP = true;
+    private boolean announcementTitles = true;
+
+    public boolean isAnnouncementTitles() {
+        return announcementTitles;
+    }
+
+    public void setAnnouncementTitles(boolean announcementTitles) {
+        this.announcementTitles = announcementTitles;
+    }
 
     public boolean isTpAuto() {
         return tpAuto;

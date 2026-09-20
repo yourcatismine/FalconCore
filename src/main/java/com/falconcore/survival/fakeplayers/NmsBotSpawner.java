@@ -250,6 +250,8 @@ public final class NmsBotSpawner {
                 resetKeepAliveFields(listener);
             }
 
+            ensurePlayerListed(serverPlayer);
+
             Method getBukkitEntity = serverPlayerClass.getMethod("getBukkitEntity");
             Object entity = getBukkitEntity.invoke(serverPlayer);
             if (entity instanceof Player player) {
@@ -258,13 +260,70 @@ public final class NmsBotSpawner {
                 } catch (Throwable ignored) {
                 }
                 player.setGameMode(GameMode.SURVIVAL);
+                player.setInvisible(false);
                 refreshKeepAlive(player);
+                broadcastPlayerInfoUpdate(serverPlayer);
                 return player;
             }
             return null;
         } catch (Exception e) {
             Bukkit.getLogger().warning("[FalconCore] Failed to spawn fake bot '" + name + "': " + e.getMessage());
             return null;
+        }
+    }
+
+    public static void ensurePlayerListed(Object serverPlayer) {
+        if (serverPlayer == null) return;
+        try {
+            for (Method m : serverPlayer.getClass().getMethods()) {
+                if ((m.getName().equals("setListed") || m.getName().equals("listInTab")) && m.getParameterCount() == 1 && m.getParameterTypes()[0] == boolean.class) {
+                    m.setAccessible(true);
+                    m.invoke(serverPlayer, true);
+                    break;
+                }
+            }
+            Field listedField = findFieldByName(serverPlayer.getClass(), "listed");
+            if (listedField != null && listedField.getType() == boolean.class) {
+                listedField.setBoolean(serverPlayer, true);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public static void broadcastPlayerInfoUpdate(Object serverPlayer) {
+        if (serverPlayer == null) return;
+        try {
+            if (craftServerGetServerMethod == null || getPlayerListMethod == null || nmsClassLoader == null) return;
+            Object minecraftServer = craftServerGetServerMethod.invoke(Bukkit.getServer());
+            Object playerList = getPlayerListMethod.invoke(minecraftServer);
+            if (playerList == null) return;
+
+            Class<?> infoPacketClass = null;
+            try {
+                infoPacketClass = nmsClassLoader.loadClass("net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket");
+            } catch (ClassNotFoundException ignored) {}
+
+            if (infoPacketClass != null) {
+                Method initMethod = null;
+                for (Method m : infoPacketClass.getMethods()) {
+                    if (m.getName().equals("createPlayerInitializing") && m.getParameterCount() == 1) {
+                        initMethod = m;
+                        break;
+                    }
+                }
+                Object packet = null;
+                if (initMethod != null) {
+                    packet = initMethod.invoke(null, java.util.Collections.singletonList(serverPlayer));
+                }
+
+                if (packet != null) {
+                    Method broadcastAll = findMethod(playerList.getClass(), "broadcastAll", 1);
+                    if (broadcastAll != null) {
+                        broadcastAll.invoke(playerList, packet);
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
         }
     }
 

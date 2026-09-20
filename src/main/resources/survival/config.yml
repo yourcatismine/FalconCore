@@ -123,3 +123,19 @@ command-whitelist:
     - "bounty"
     - "stats"
     - 'team'
+
+# Extra Resource Packs
+extra-resource-packs:
+  enabled: true
+  send-delay-ticks: 8
+  packs:
+    - id: ""  # Unique UUID for FalconPack (leave empty to generate automatically from URL)
+      url: "https://your-host.com/FalconPack.zip"
+      sha1: "" # Optional SHA-1 hash for caching
+      prompt: "&eOur server uses a custom resource pack!"
+      required: false
+    - id: ""  # Unique UUID for FalconPack (leave empty to generate automatically from URL)
+      url: "https://your-host.com/FalconPack.zip"
+      sha1: "" # Optional SHA-1 hash for caching
+      prompt: "&eOur server uses a custom resource pack!"
+      required: false

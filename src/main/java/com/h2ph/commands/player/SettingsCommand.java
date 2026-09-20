@@ -131,6 +131,12 @@ public class SettingsCommand implements CommandExecutor {
                 createItem(Material.CHAINMAIL_HELMET, "&aʀᴇѕᴘᴀᴡɴ ɢᴇᴀʀ", "&fCurrently: " + respawnStatus, "&a&lON",
                         "&4&lOFF"));
 
+        boolean announcementTitles = data == null || data.isAnnouncementTitles();
+        String announcementStatus = announcementTitles ? "&a&lON" : "&4&lOFF";
+        gui.setItem(15,
+                createItem(Material.NOTE_BLOCK, "&aᴀɴɴᴏᴜɴᴄᴇᴍᴇɴᴛ ᴛɪᴛʟᴇѕ", "&fCurrently: " + announcementStatus, "&a&lON",
+                        "&4&lOFF"));
+
         player.openInventory(gui);
     }
 

@@ -194,16 +194,29 @@ public class RTPQueueManager {
     }
 
     private void teleportPlayer(Player player, org.bukkit.Location target) {
-        player.teleportAsync(target).thenAccept(success -> {
-            if (success) {
-                String successMsg = ChatColor.translateAlternateColorCodes('&',
-                        "&7You teleported to a random location");
-                player.sendMessage(successMsg);
-                player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
-                        net.md_5.bungee.api.chat.TextComponent.fromLegacyText(successMsg));
-                player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_ENDERMAN_TELEPORT, 1f, 1f);
-            }
-        });
+        if (plugin.getGtaCameraManager() != null) {
+            plugin.getGtaCameraManager().startCameraSequence(player, target, success -> {
+                if (success) {
+                    String successMsg = ChatColor.translateAlternateColorCodes('&',
+                            "&7You teleported to a random location");
+                    player.sendMessage(successMsg);
+                    player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                            net.md_5.bungee.api.chat.TextComponent.fromLegacyText(successMsg));
+                    player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_ENDERMAN_TELEPORT, 1f, 1f);
+                }
+            });
+        } else {
+            player.teleportAsync(target).thenAccept(success -> {
+                if (success) {
+                    String successMsg = ChatColor.translateAlternateColorCodes('&',
+                            "&7You teleported to a random location");
+                    player.sendMessage(successMsg);
+                    player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                            net.md_5.bungee.api.chat.TextComponent.fromLegacyText(successMsg));
+                    player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_ENDERMAN_TELEPORT, 1f, 1f);
+                }
+            });
+        }
     }
 
     public int getCountdown(String regionName) {

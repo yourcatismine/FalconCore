@@ -43,6 +43,9 @@ public class SpawnListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        if (plugin.getFalconBotManager() != null && (plugin.getFalconBotManager().isBot(player.getUniqueId()) || plugin.getFalconBotManager().isBot(player.getName()))) {
+            return;
+        }
         PlayerData data = plugin.getPlayerDataManager().get(player.getUniqueId());
 
         if (!player.hasPlayedBefore()) {

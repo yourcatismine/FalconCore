@@ -9,6 +9,11 @@ depend: [packetevents, PlaceholderAPI]
 softdepend: [Vault, WorldEdit, FastAsyncWorldEdit, LuckPerms, voicechat, Geyser-Spigot, floodgate]
 
 commands:
+  casino:
+    description: Open the Casino Slot Machine GUI
+    usage: /casino [bet]
+    aliases: [slots, slot]
+
   shop:
     description: Open the shop GUI
     usage: /<command>
@@ -615,4 +620,12 @@ permissions:
 
   falcon.lowtier:
     description: Permission to manage player tier ranks via /lowtier
+    default: op
+
+  falcon.casino.use:
+    description: Permission to use /casino and play the Slot Machine
+    default: true
+
+  falcon.casino.admin:
+    description: Permission to manage casino and reload casino configuration
     default: op

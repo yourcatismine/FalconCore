@@ -204,7 +204,7 @@ public class NametagManager implements Listener {
         }
     }
 
-    private void sendTeamPacketToViewer(Player viewer, String teamName, WrapperPlayServerTeams createPacket, WrapperPlayServerTeams updatePacket) {
+    private void sendTeamPacketToViewer(Player viewer, String teamName, String gamertag, WrapperPlayServerTeams createPacket, WrapperPlayServerTeams updatePacket) {
         if (!viewer.isOnline() || teamName == null || teamName.isEmpty()) return;
         User user = PacketEvents.getAPI().getPlayerManager().getUser(viewer);
         if (user == null) return;
@@ -217,6 +217,15 @@ public class NametagManager implements Listener {
         } else {
             if (updatePacket != null) {
                 user.sendPacket(updatePacket);
+            }
+            if (gamertag != null && !gamertag.isEmpty()) {
+                WrapperPlayServerTeams addPacket = new WrapperPlayServerTeams(
+                        teamName,
+                        WrapperPlayServerTeams.TeamMode.ADD_ENTITIES,
+                        Optional.empty(),
+                        Collections.singletonList(gamertag)
+                );
+                user.sendPacket(addPacket);
             }
         }
     }
@@ -331,9 +340,9 @@ public class NametagManager implements Listener {
                 if (otherTag != null) {
                     boolean showDisguise = otherTag.isDisguised && !joiningPlayer.hasPermission("falcon.disguise.see");
                     if (showDisguise && otherTag.disguiseCreatePacket != null) {
-                        sendTeamPacketToViewer(joiningPlayer, otherTag.disguiseTeamName, otherTag.disguiseCreatePacket, otherTag.disguiseUpdatePacket);
+                        sendTeamPacketToViewer(joiningPlayer, otherTag.disguiseTeamName, otherTag.disguiseName, otherTag.disguiseCreatePacket, otherTag.disguiseUpdatePacket);
                     } else if (otherTag.realCreatePacket != null) {
-                        sendTeamPacketToViewer(joiningPlayer, otherTag.realTeamName, otherTag.realCreatePacket, otherTag.realUpdatePacket);
+                        sendTeamPacketToViewer(joiningPlayer, otherTag.realTeamName, other.getName(), otherTag.realCreatePacket, otherTag.realUpdatePacket);
                     }
                 }
             }
@@ -489,9 +498,9 @@ public class NametagManager implements Listener {
         for (Player viewer : Bukkit.getOnlinePlayers()) {
             boolean showDisguise = isDisguised && (!viewer.hasPermission("falcon.disguise.see") || viewer.equals(target));
             if (showDisguise && disguiseCreate != null) {
-                sendTeamPacketToViewer(viewer, disguiseTeamName, disguiseCreate, disguiseUpdate);
+                sendTeamPacketToViewer(viewer, disguiseTeamName, disguiseName, disguiseCreate, disguiseUpdate);
             } else {
-                sendTeamPacketToViewer(viewer, realTeamName, realCreate, realUpdate);
+                sendTeamPacketToViewer(viewer, realTeamName, realName, realCreate, realUpdate);
             }
         }
     }
@@ -534,9 +543,11 @@ public class NametagManager implements Listener {
                 }
 
                 if (u != null) {
+                    Player onlinePlayer = Bukkit.getPlayer(uuid);
+                    net.luckperms.api.query.QueryOptions qOptions = com.h2ph.utils.LuckPermsUtils.getSafeQueryOptions(lp, onlinePlayer, u);
                     // Check all inherited groups
                     try {
-                        for (net.luckperms.api.model.group.Group g : u.getInheritedGroups(u.getQueryOptions())) {
+                        for (net.luckperms.api.model.group.Group g : u.getInheritedGroups(qOptions)) {
                             if (g.getWeight().isPresent()) {
                                 int w = g.getWeight().getAsInt();
                                 if (w > highestWeight) {

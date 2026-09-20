@@ -26,11 +26,17 @@ public class InventoryWorthListener implements Listener {
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
+        if (plugin.getFalconBotManager() != null && (plugin.getFalconBotManager().isBot(event.getPlayer().getUniqueId()) || plugin.getFalconBotManager().isBot(event.getPlayer().getName()))) {
+            return;
+        }
         plugin.getInventoryWorthManager().scheduleActivation(event.getPlayer());
     }
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
+        if (plugin.getFalconBotManager() != null && (plugin.getFalconBotManager().isBot(event.getPlayer().getUniqueId()) || plugin.getFalconBotManager().isBot(event.getPlayer().getName()))) {
+            return;
+        }
         plugin.getInventoryWorthManager().handleQuit(event.getPlayer());
     }
 

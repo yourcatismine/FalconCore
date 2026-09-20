@@ -27,6 +27,9 @@ public class InventorySyncListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        if (plugin.getFalconBotManager() != null && (plugin.getFalconBotManager().isBot(player.getUniqueId()) || plugin.getFalconBotManager().isBot(player.getName()))) {
+            return;
+        }
         UUID uuid = player.getUniqueId();
 
         if (player.isDead()) {
@@ -74,6 +77,9 @@ public class InventorySyncListener implements Listener {
             return;
         }
         Player player = event.getEntity();
+        if (plugin.getFalconBotManager() != null && (plugin.getFalconBotManager().isBot(player.getUniqueId()) || plugin.getFalconBotManager().isBot(player.getName()))) {
+            return;
+        }
         UUID uuid = player.getUniqueId();
         try {
             String emptyInv = ItemSerializationManager.itemStackArrayToBase64(new ItemStack[0]);
@@ -88,6 +94,9 @@ public class InventorySyncListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
+        if (plugin.getFalconBotManager() != null && (plugin.getFalconBotManager().isBot(player.getUniqueId()) || plugin.getFalconBotManager().isBot(player.getName()))) {
+            return;
+        }
         UUID uuid = player.getUniqueId();
 
         if (player.isDead()) {

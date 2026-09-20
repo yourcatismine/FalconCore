@@ -38,6 +38,7 @@ public class BaltopCommand implements CommandExecutor, Listener {
     private final Map<UUID, Integer> playerPages = new ConcurrentHashMap<>();
     private final Map<UUID, String> playerSearches = new ConcurrentHashMap<>();
     private final Map<UUID, Long> refreshCooldowns = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> requestVersions = new ConcurrentHashMap<>();
     private final Set<UUID> pendingLoads = ConcurrentHashMap.newKeySet();
 
     private static final Map<UUID, ItemStack> baseHeadCache = new ConcurrentHashMap<>();
@@ -93,6 +94,7 @@ public class BaltopCommand implements CommandExecutor, Listener {
 
         Player player = (Player) sender;
         playerSearches.remove(player.getUniqueId());
+        playerPages.put(player.getUniqueId(), 1);
 
         openLoadingGUI(player);
         loadDataAsync(player, 1, false);
@@ -126,9 +128,7 @@ public class BaltopCommand implements CommandExecutor, Listener {
 
     private void loadDataAsync(Player player, int page, boolean forceRefresh) {
         UUID playerUuid = player.getUniqueId();
-        if (!pendingLoads.add(playerUuid)) {
-            return;
-        }
+        int version = requestVersions.compute(playerUuid, (k, v) -> v == null ? 1 : v + 1);
 
         plugin.getSchedulerAdapter().runTaskAsync(() -> {
             try {
@@ -155,6 +155,10 @@ public class BaltopCommand implements CommandExecutor, Listener {
 
                 if (allEntries == null) {
                     allEntries = new ArrayList<>();
+                }
+
+                if (requestVersions.getOrDefault(playerUuid, 0) != version) {
+                    return;
                 }
 
                 String searchQuery = playerSearches.get(playerUuid);
@@ -211,8 +215,12 @@ public class BaltopCommand implements CommandExecutor, Listener {
 
                 ItemStack selfHead = createSelfHeadItem(player, balance, rankDisplay);
 
-                String title = ChatColor.translateAlternateColorCodes('&', "&8ᴍᴏѕᴛ ᴍᴏɴᴇʏ (page " + finalPage + ")");
+                String title = ChatColor.translateAlternateColorCodes('&', "&8ᴍᴏѕᴛ ᴍᴏɴᴇʏ (Page " + finalPage + "/" + totalPages + ")");
                 Inventory gui = Bukkit.createInventory(null, 54, title);
+
+                for (int s = 0; s < 54; s++) {
+                    gui.setItem(s, null);
+                }
 
                 int slot = 0;
                 for (ItemStack item : items) {
@@ -233,6 +241,10 @@ public class BaltopCommand implements CommandExecutor, Listener {
                 plugin.getSchedulerAdapter().runEntityTask(player, () -> {
                     if (!player.isOnline()) return;
 
+                    if (requestVersions.getOrDefault(playerUuid, 0) != version) {
+                        return;
+                    }
+
                     playerPages.put(playerUuid, finalPage);
 
                     String currentTitle = player.getOpenInventory().getTitle();
@@ -247,8 +259,6 @@ public class BaltopCommand implements CommandExecutor, Listener {
                 });
             } catch (Exception e) {
                 plugin.getLogger().warning("Error in Baltop async loader: " + e.getMessage());
-            } finally {
-                pendingLoads.remove(playerUuid);
             }
         });
     }
@@ -363,20 +373,23 @@ public class BaltopCommand implements CommandExecutor, Listener {
         int currentPage = playerPages.getOrDefault(player.getUniqueId(), 1);
 
         if (event.getSlot() == 45 && item.getType() == Material.ARROW) {
-            loadDataAsync(player, currentPage - 1, false);
+            int targetPage = Math.max(1, currentPage - 1);
+            playerPages.put(player.getUniqueId(), targetPage);
+            loadDataAsync(player, targetPage, false);
             playSound(player, getSound("button-click", Sound.UI_BUTTON_CLICK));
         } else if (event.getSlot() == 53 && item.getType() == Material.ARROW) {
-            loadDataAsync(player, currentPage + 1, false);
+            int targetPage = currentPage + 1;
+            playerPages.put(player.getUniqueId(), targetPage);
+            loadDataAsync(player, targetPage, false);
             playSound(player, getSound("button-click", Sound.UI_BUTTON_CLICK));
         } else if (event.getSlot() == 49 && item.getType() == Material.EMERALD) {
             long now = System.currentTimeMillis();
             long last = refreshCooldowns.getOrDefault(player.getUniqueId(), 0L);
-            if (now - last < 1500) {
+            if (now - last < 400) {
                 return;
             }
             refreshCooldowns.put(player.getUniqueId(), now);
-            playerSearches.remove(player.getUniqueId());
-            loadDataAsync(player, 1, true);
+            loadDataAsync(player, currentPage, true);
             playSound(player, getSound("button-click", Sound.UI_BUTTON_CLICK));
         } else if (event.getSlot() == 50 && item.getType() == Material.OAK_SIGN) {
             player.closeInventory();
@@ -387,6 +400,7 @@ public class BaltopCommand implements CommandExecutor, Listener {
                 } else {
                     playerSearches.remove(player.getUniqueId());
                 }
+                playerPages.put(player.getUniqueId(), 1);
                 loadDataAsync(player, 1, false);
             });
             playSound(player, getSound("button-click", Sound.UI_BUTTON_CLICK));
@@ -399,7 +413,7 @@ public class BaltopCommand implements CommandExecutor, Listener {
         playerPages.remove(uuid);
         playerSearches.remove(uuid);
         refreshCooldowns.remove(uuid);
-        pendingLoads.remove(uuid);
+        requestVersions.remove(uuid);
     }
 
     private ItemStack createKeyItem(Material mat, String name, String lore) {

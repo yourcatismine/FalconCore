@@ -1,0 +1,215 @@
+# ==============================================================================
+#                       FALCON CASINO - SLOT MACHINE CONFIG
+# ==============================================================================
+enabled: true
+
+# ------------------------------------------------------------------------------
+# Economy & Betting Settings
+# ------------------------------------------------------------------------------
+tax:
+  # Percentage of tax applied on top of the bet (e.g. 5.0 = 5% tax)
+  # When betting $1,000 with 5% tax, $1,050 is deducted, and $1,000 is the active bet.
+  percentage: 5.0
+  # Whether tax is enabled
+  enabled: true
+
+betting:
+  # Default starting bet when opening the GUI
+  default-bet: 100.0
+  # Minimum allowed bet
+  min-bet: 10.0
+  # Maximum allowed bet
+  max-bet: 1000000.0
+  # Quick bet adjustment amounts for GUI buttons
+  presets:
+    - 50.0
+    - 100.0
+    - 500.0
+    - 1000.0
+    - 5000.0
+    - 10000.0
+
+# ------------------------------------------------------------------------------
+# GUI & FalconPack (Resource Pack) Integration
+# ------------------------------------------------------------------------------
+gui:
+  # GUI Title (Custom bitmap font overlay \uE001 with -8px shift \uF808 and return shift \uF80C\uF80A\uF808)
+  title: "&f\uF808\uE001\uF80C\uF80A\uF808&6&lFALCON CASINO &8| &e&lSLOTS"
+  size: 27
+
+  # Slots where the 3 slot machine reels spin
+  reel-slots:
+    reel-1: 12
+    reel-2: 13
+    reel-3: 14
+
+  # Interactive UI button slots
+  slots:
+    spin-button: 22
+    info-button: 4
+    bet-decrease-100: 19
+    bet-decrease-10: 20
+    bet-increase-10: 24
+    bet-increase-100: 25
+    bet-min: 18
+    bet-max: 26
+    player-stats: 0
+    filler:
+      material: "AIR"
+      custom-model-data: 0
+      name: " "
+
+# ------------------------------------------------------------------------------
+# Slot Machine Symbols & Winning Multipliers
+# ------------------------------------------------------------------------------
+# Probability is calculated using the relative weight of each symbol.
+# Higher weight = more frequent. Lower weight = rare jackpot item.
+# Multiplier-3x is applied when all 3 reels match.
+# Multiplier-2x is applied when 2 reels match (Reel 1 & Reel 2 or Reel 2 & Reel 3).
+# CustomModelData (CMD) is used to load custom textures from FalconPack.
+symbols:
+  seven:
+    display-name: "&6&l★ LUCKY 7 ★"
+    material: "PAPER"
+    custom-model-data: 7001
+    weight: 5
+    multiplier-3x: 100.0
+    multiplier-2x: 5.0
+    lore:
+      - "&7The ultimate jackpot symbol!"
+      - "&e3x Match: &6100x Payout"
+      - "&e2x Match: &65x Payout"
+
+  diamond:
+    display-name: "&b&l◆ DIAMOND ◆"
+    material: "PAPER"
+    custom-model-data: 7002
+    weight: 10
+    multiplier-3x: 50.0
+    multiplier-2x: 3.0
+    lore:
+      - "&7Shining bright rewards!"
+      - "&e3x Match: &b50x Payout"
+      - "&e2x Match: &b3x Payout"
+
+  clover:
+    display-name: "&a&l♣ FOUR-LEAF CLOVER ♣"
+    material: "PAPER"
+    custom-model-data: 7003
+    weight: 18
+    multiplier-3x: 25.0
+    multiplier-2x: 2.0
+    lore:
+      - "&7Good fortune awaits!"
+      - "&e3x Match: &a25x Payout"
+      - "&e2x Match: &a2x Payout"
+
+  bell:
+    display-name: "&e&l🔔 GOLDEN BELL 🔔"
+    material: "PAPER"
+    custom-model-data: 7004
+    weight: 25
+    multiplier-3x: 15.0
+    multiplier-2x: 1.5
+    lore:
+      - "&7Ring in the profits!"
+      - "&e3x Match: &e15x Payout"
+      - "&e2x Match: &e1.5x Payout"
+
+  lemon:
+    display-name: "&e&l🍋 LEMON 🍋"
+    material: "PAPER"
+    custom-model-data: 7005
+    weight: 35
+    multiplier-3x: 8.0
+    multiplier-2x: 1.2
+    lore:
+      - "&7Fresh and sweet multiplier!"
+      - "&e3x Match: &e8x Payout"
+      - "&e2x Match: &e1.2x Payout"
+
+  cherry:
+    display-name: "&c&l🍒 CHERRY 🍒"
+    material: "PAPER"
+    custom-model-data: 7006
+    weight: 45
+    multiplier-3x: 4.0
+    multiplier-2x: 1.0
+    lore:
+      - "&7The classic slot staple!"
+      - "&e3x Match: &c4x Payout"
+      - "&e2x Match: &c1x Payout (Push)"
+
+# ------------------------------------------------------------------------------
+# Sound Effects
+# ------------------------------------------------------------------------------
+sounds:
+  spin-tick:
+    enabled: true
+    # Custom FalconPack sound event or vanilla sound enum (e.g. BLOCK_NOTE_BLOCK_HAT)
+    sound: "falcon.casino.spin_tick"
+    volume: 1.0
+    pitch: 1.0
+  reel-lock:
+    enabled: true
+    # Custom FalconPack sound event or vanilla sound enum (e.g. BLOCK_NOTE_BLOCK_PLING)
+    sound: "falcon.casino.reel_lock"
+    volume: 1.0
+    pitch: 1.0
+  win:
+    enabled: true
+    # Custom FalconPack sound event or vanilla sound enum (e.g. ENTITY_PLAYER_LEVELUP)
+    sound: "falcon.casino.win"
+    volume: 1.0
+    pitch: 1.0
+  jackpot:
+    enabled: true
+    # Custom FalconPack sound event or vanilla sound enum (e.g. UI_TOAST_CHALLENGE_COMPLETE)
+    sound: "falcon.casino.jackpot"
+    volume: 1.0
+    pitch: 1.0
+  lose:
+    enabled: true
+    # Custom FalconPack sound event or vanilla sound enum (e.g. BLOCK_NOTE_BLOCK_BASS)
+    sound: "falcon.casino.lose"
+    volume: 0.9
+    pitch: 1.0
+  click:
+    enabled: true
+    # Custom FalconPack sound event or vanilla sound enum (e.g. UI_BUTTON_CLICK)
+    sound: "falcon.casino.spin_start"
+    volume: 0.8
+    pitch: 1.0
+
+# ------------------------------------------------------------------------------
+# Animation Settings
+# ------------------------------------------------------------------------------
+animation:
+  # Total spin steps before final stop
+  total-steps: 22
+  # Base tick speed between animation frames (1 tick = 50ms)
+  tick-interval: 2
+  # Step when Reel 1 locks in
+  reel-1-stop-step: 12
+  # Step when Reel 2 locks in
+  reel-2-stop-step: 17
+  # Step when Reel 3 locks in (must equal total-steps)
+  reel-3-stop-step: 22
+
+# ------------------------------------------------------------------------------
+# Messages
+# ------------------------------------------------------------------------------
+messages:
+  prefix: "&8[&6&lCASINO&8] &r"
+  win: "&a&lWIN! &7You won &a$%amount% &7(&e%multiplier%x&7)!"
+  jackpot: "&6&l★ JACKPOT! ★ &eYou hit 3x %symbol% &eand won &a$%amount% &7(&e%multiplier%x&7)!"
+  lose: "&cNo luck this time! &7You lost &c$%amount%&7."
+  spinning: "&eReels are spinning... Good luck!"
+  already-spinning: "&cYou already have a slot machine spin in progress!"
+  insufficient-funds: "&cInsufficient funds! Total cost with %tax%% tax is &e$%total%&c, but you only have &e$%balance%&c."
+  min-bet: "&cThe minimum bet allowed is &e$%min%&c."
+  max-bet: "&cThe maximum bet allowed is &e$%max%&c."
+  invalid-bet: "&cPlease enter a valid positive bet amount."
+  offline-win: "&a[Casino] &7While you were away, your slot spin resulted in a win of &a$%amount%&7!"
+  reloaded: "&aCasino configuration successfully reloaded."
+  no-permission: "&cYou do not have permission to execute this command."

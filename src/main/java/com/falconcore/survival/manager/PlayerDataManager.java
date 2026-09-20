@@ -194,6 +194,9 @@ public class PlayerDataManager {
             if (cratesConfig.contains("settings.respawn_rtp")) {
                 data.setRespawnRTP(cratesConfig.getBoolean("settings.respawn_rtp"));
             }
+            if (cratesConfig.contains("settings.announcement_titles")) {
+                data.setAnnouncementTitles(cratesConfig.getBoolean("settings.announcement_titles"));
+            }
             if (cratesConfig.contains("mute.muted")) {
                 data.setMuted(cratesConfig.getBoolean("mute.muted"));
             }
@@ -404,6 +407,7 @@ public class PlayerDataManager {
         cratesConfig.set("settings.vanished", data.isVanished());
         cratesConfig.set("settings.fast_crystals", data.isFastCrystals());
         cratesConfig.set("settings.respawn_rtp", data.isRespawnRTP());
+        cratesConfig.set("settings.announcement_titles", data.isAnnouncementTitles());
 
         cratesConfig.set("mute.muted", data.isMuted());
         cratesConfig.set("mute.reason", data.getMuteReason());

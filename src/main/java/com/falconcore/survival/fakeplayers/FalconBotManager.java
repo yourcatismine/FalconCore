@@ -82,6 +82,26 @@ public final class FalconBotManager implements Listener {
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerJoin(org.bukkit.event.player.PlayerJoinEvent event) {
+        Player joining = event.getPlayer();
+        if (isBot(joining.getUniqueId()) || isBot(joining.getName())) {
+            AuthPluginHook.bypassAuth(plugin, joining);
+            return;
+        }
+
+        // Real player joined: ensure all active bots are visible to them
+        for (UUID botId : activeBots) {
+            Player bot = Bukkit.getPlayer(botId);
+            if (bot != null && bot.isOnline()) {
+                try {
+                    joining.showPlayer(plugin, bot);
+                    bot.showPlayer(plugin, joining);
+                } catch (Throwable ignored) {}
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         cleanUpBot(event.getPlayer().getUniqueId(), event.getPlayer().getName());
     }
@@ -203,8 +223,34 @@ public final class FalconBotManager implements Listener {
                                 bot.teleport(baseLocation);
                             }
                         } catch (Throwable ignored) {}
+                        AuthPluginHook.bypassAuth(plugin, bot);
+                        for (Player viewer : Bukkit.getOnlinePlayers()) {
+                            if (!viewer.equals(bot)) {
+                                try {
+                                    viewer.showPlayer(plugin, bot);
+                                    bot.showPlayer(plugin, viewer);
+                                } catch (Throwable ignored) {}
+                            }
+                        }
+                        if (plugin.getTabListManager() != null) {
+                            plugin.getTabListManager().updateTabList(bot);
+                        }
                     }
                 }, 2L);
+
+                plugin.getSchedulerAdapter().runAtLocationLater(baseLocation, () -> {
+                    if (bot.isOnline()) {
+                        AuthPluginHook.bypassAuth(plugin, bot);
+                        for (Player viewer : Bukkit.getOnlinePlayers()) {
+                            if (!viewer.equals(bot)) {
+                                try {
+                                    viewer.showPlayer(plugin, bot);
+                                    bot.showPlayer(plugin, viewer);
+                                } catch (Throwable ignored) {}
+                            }
+                        }
+                    }
+                }, 10L);
 
                 activeBots.add(bot.getUniqueId());
                 botNames.put(bot.getName().toLowerCase(), bot.getUniqueId());
@@ -523,9 +569,21 @@ public final class FalconBotManager implements Listener {
         bot.setFlying(false);
         bot.setGravity(true);
         bot.setCanPickupItems(true);
+        bot.setInvisible(false);
         try {
             bot.displayName(net.kyori.adventure.text.Component.text(bot.getName()));
+            bot.setPlayerListName(bot.getName());
         } catch (Exception ignored) {
+        }
+        AuthPluginHook.bypassAuth(plugin, bot);
+
+        for (Player viewer : Bukkit.getOnlinePlayers()) {
+            if (!viewer.equals(bot)) {
+                try {
+                    viewer.showPlayer(plugin, bot);
+                    bot.showPlayer(plugin, viewer);
+                } catch (Throwable ignored) {}
+            }
         }
     }
 

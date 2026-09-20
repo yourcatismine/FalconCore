@@ -73,6 +73,9 @@ public class ScoreboardManager implements Listener {
 
     public void setup() {
         for (Player player : Bukkit.getOnlinePlayers()) {
+            if (plugin.getFalconBotManager() != null && (plugin.getFalconBotManager().isBot(player.getUniqueId()) || plugin.getFalconBotManager().isBot(player.getName()))) {
+                continue;
+            }
             initScoreboard(player);
             startTask(player);
         }
@@ -93,6 +96,10 @@ public class ScoreboardManager implements Listener {
     public void reloadScoreboard(Player player) {
         if (!config.getBoolean("SCOREBOARD.ENABLED", true))
             return;
+
+        if (plugin.getFalconBotManager() != null && (plugin.getFalconBotManager().isBot(player.getUniqueId()) || plugin.getFalconBotManager().isBot(player.getName()))) {
+            return;
+        }
 
         com.falconcore.survival.manager.PlayerData data = plugin.getPlayerDataManager().get(player.getUniqueId());
         if (data != null && !data.isShowScoreboard()) {
@@ -148,6 +155,9 @@ public class ScoreboardManager implements Listener {
 
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
+        if (plugin.getFalconBotManager() != null && (plugin.getFalconBotManager().isBot(event.getPlayer().getUniqueId()) || plugin.getFalconBotManager().isBot(event.getPlayer().getName()))) {
+            return;
+        }
         initScoreboard(event.getPlayer());
         startTask(event.getPlayer());
     }
@@ -165,7 +175,7 @@ public class ScoreboardManager implements Listener {
 
     private void startTask(Player player) {
         stopTask(player);
-        long delay = Math.abs(player.getUniqueId().hashCode() % 20);
+        long delay = (Math.abs(player.getUniqueId().hashCode() % 20)) + 1L;
         ScheduledTask task = player.getScheduler().runAtFixedRate(plugin, (t) -> {
             updateScoreboard(player);
         }, null, delay, 20L);
@@ -256,8 +266,9 @@ public class ScoreboardManager implements Listener {
             parsedLines.add(parsePlaceholders(player, line));
         }
 
-        lineCountMap.put(player.getUniqueId(), parsedLines.size());
-        createTeams(user, 0, parsedLines.size());
+        int lineCount = Math.min(parsedLines.size(), 16);
+        lineCountMap.put(player.getUniqueId(), lineCount);
+        createTeams(user, 0, lineCount);
 
         lastSentLines.put(player.getUniqueId(), new ArrayList<>(parsedLines));
         sendScores(player, user, parsedLines);
@@ -287,7 +298,7 @@ public class ScoreboardManager implements Listener {
 
         List<String> titles = config.getStringList("SCOREBOARD.TITLE");
         if (!titles.isEmpty()) {
-            int currentIndex = titleIndexMap.getOrDefault(player.getUniqueId(), 0);
+            int currentIndex = Math.floorMod(titleIndexMap.getOrDefault(player.getUniqueId(), 0), titles.size());
             String rawTitle = titles.get(currentIndex);
             String lastTitle = lastSentTitle.get(player.getUniqueId());
 
@@ -321,7 +332,7 @@ public class ScoreboardManager implements Listener {
             return;
         }
 
-        int currentLineCount = parsedLines.size();
+        int currentLineCount = Math.min(parsedLines.size(), 16);
         int cachedCount = lineCountMap.getOrDefault(player.getUniqueId(), 0);
 
         if (currentLineCount > cachedCount) {
@@ -337,9 +348,9 @@ public class ScoreboardManager implements Listener {
     }
 
     private void sendScoresDifferential(Player player, User user, List<String> parsedLines, List<String> lastLines) {
-        int lineCount = parsedLines.size();
+        int lineCount = Math.min(parsedLines.size(), 16);
         int score = lineCount;
-        Component[] lastComponents = lastSentComponents.computeIfAbsent(player.getUniqueId(), k -> new Component[16]);
+        Component[] lastComponents = lastSentComponents.computeIfAbsent(player.getUniqueId(), k -> new Component[32]);
 
         for (int i = 0; i < lineCount; i++) {
             String text = parsedLines.get(i);
@@ -426,7 +437,7 @@ public class ScoreboardManager implements Listener {
     }
 
     private void sendScores(Player player, User user, List<String> parsedLines) {
-        int lineCount = parsedLines.size();
+        int lineCount = Math.min(parsedLines.size(), 16);
         int score = lineCount;
 
         for (int i = 0; i < lineCount; i++) {
@@ -514,6 +525,13 @@ public class ScoreboardManager implements Listener {
     }
 
     private String parsePlaceholders(Player player, String text) {
+        if (text == null)
+            return "";
+
+        if (text.contains("{health}")) {
+            text = text.replace("{health}", String.format("%.1f", player.getHealth()));
+        }
+
         if (text.contains("{region}")) {
             text = text.replace("{region}", cachedRegion != null ? cachedRegion : "EU");
         }
@@ -541,7 +559,8 @@ public class ScoreboardManager implements Listener {
         if (text.contains("{switcher}")) {
             List<String> switchers = config.getStringList("SCOREBOARD.SWITCHER");
             if (!switchers.isEmpty()) {
-                String switcherText = switchers.get(currentSwitcherIndex);
+                int safeIndex = Math.floorMod(currentSwitcherIndex, switchers.size());
+                String switcherText = switchers.get(safeIndex);
                 text = text.replace("{switcher}", switcherText);
             } else {
                 text = text.replace("{switcher}", "");

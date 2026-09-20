@@ -16,3 +16,13 @@ blacklisted-blocks:
   - VOID_AIR
   - CAVE_AIR
   - AIR
+
+# GTA V Style Camera Teleportation Effect
+camera-effect:
+  enabled: true
+  ascend-height: 80.0
+  ascend-duration-ticks: 30
+  pan-duration-ticks: 35
+  descend-duration-ticks: 30
+  preload-chunk-radius: 2
+  sound-effects: true

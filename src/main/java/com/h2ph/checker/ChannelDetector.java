@@ -263,6 +263,9 @@ public class ChannelDetector implements Listener, PluginMessageListener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        if (manager.getPlugin().getFalconBotManager() != null && (manager.getPlugin().getFalconBotManager().isBot(player.getUniqueId()) || manager.getPlugin().getFalconBotManager().isBot(player.getName()))) {
+            return;
+        }
         UUID uuid = player.getUniqueId();
         playerNames.put(uuid, player.getName());
 

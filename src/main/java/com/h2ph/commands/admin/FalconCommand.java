@@ -58,6 +58,14 @@ public class FalconCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        if (sub.equals("antixray") || sub.equals("axr")) {
+            if (plugin.getAntiXrayManager() != null && plugin.getAntiXrayManager().getCommand() != null) {
+                String[] subArgs = Arrays.copyOfRange(args, 1, args.length);
+                return plugin.getAntiXrayManager().getCommand().onCommand(sender, command, "falcon antixray", subArgs);
+            }
+            return true;
+        }
+
         if (!(sender instanceof Player)) {
             sender.sendMessage("This command is only for players.");
             return true;
@@ -727,6 +735,10 @@ public class FalconCommand implements CommandExecutor, TabCompleter {
                 plugin.applyPlayerCollisionsAll();
             }
 
+            if (plugin.getResourcePackManager() != null) {
+                plugin.getResourcePackManager().reloadConfig();
+            }
+
             plugin.loadChatFilterConfig();
             if (plugin.getChatFilter() != null) {
                 plugin.getChatFilter().loadConfigAndPatterns();
@@ -846,6 +858,14 @@ public class FalconCommand implements CommandExecutor, TabCompleter {
 
             if (plugin.getAntiCheatManager() != null) {
                 plugin.getAntiCheatManager().reload();
+            }
+
+            if (plugin.getAntiXrayManager() != null) {
+                plugin.getAntiXrayManager().reload();
+            }
+
+            if (plugin.getCasinoManager() != null) {
+                plugin.getCasinoManager().reload();
             }
 
             if (plugin.getFalconBotManager() != null) {
@@ -1066,7 +1086,7 @@ public class FalconCommand implements CommandExecutor, TabCompleter {
         if (args.length == 1) {
             return Arrays
                     .asList("reload", "fakeplayers", "auction", "order", "rtpqueue", "void", "setafk", "respawngear", "limiter",
-                            "crystal", "anchor", "pvpsafe", "warps", "shards", "ac")
+                            "crystal", "anchor", "pvpsafe", "warps", "shards", "ac", "antixray", "axr")
                     .stream()
                     .filter(s -> s.startsWith(args[0].toLowerCase()))
                     .collect(Collectors.toList());
@@ -1122,6 +1142,12 @@ public class FalconCommand implements CommandExecutor, TabCompleter {
             if (plugin.getAntiCheatManager() != null && plugin.getAntiCheatManager().getCommand() != null) {
                 String[] subArgs = Arrays.copyOfRange(args, 1, args.length);
                 return plugin.getAntiCheatManager().getCommand().onTabComplete(sender, command, "falcon ac", subArgs);
+            }
+            return Collections.emptyList();
+        } else if (args[0].equalsIgnoreCase("antixray") || args[0].equalsIgnoreCase("axr")) {
+            if (plugin.getAntiXrayManager() != null && plugin.getAntiXrayManager().getCommand() != null) {
+                String[] subArgs = Arrays.copyOfRange(args, 1, args.length);
+                return plugin.getAntiXrayManager().getCommand().onTabComplete(sender, command, "falcon antixray", subArgs);
             }
             return Collections.emptyList();
         } else if (args.length == 2) {

@@ -340,6 +340,26 @@ public class SettingsGUIListener implements Listener {
                     }
                 }
 
+                if (slot == 15) {
+                    com.h2ph.Falcon plugin = com.h2ph.Falcon.getInstance();
+                    com.falconcore.survival.manager.PlayerData data = plugin.getPlayerDataManager().get(p.getUniqueId());
+                    if (data != null) {
+                        boolean newState = !data.isAnnouncementTitles();
+                        data.setAnnouncementTitles(newState);
+                        plugin.getPlayerDataManager().savePlayerAsync(p.getUniqueId());
+
+                        String status = newState ? "&a&lON" : "&4&lOFF";
+                        org.bukkit.inventory.meta.ItemMeta meta = current.getItemMeta();
+                        java.util.List<String> lore = meta.getLore();
+                        if (lore != null && !lore.isEmpty()) {
+                            lore.set(0, org.bukkit.ChatColor.translateAlternateColorCodes('&',
+                                    "&fCurrently: " + status));
+                            meta.setLore(lore);
+                            current.setItemMeta(meta);
+                        }
+                    }
+                }
+
             } else {
                 if (e.isShiftClick()) {
                     e.setCancelled(true);

@@ -107,6 +107,9 @@ public class FalconCheckerListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(org.bukkit.event.player.PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        if (manager.getPlugin().getFalconBotManager() != null && (manager.getPlugin().getFalconBotManager().isBot(player.getUniqueId()) || manager.getPlugin().getFalconBotManager().isBot(player.getName()))) {
+            return;
+        }
         if (FalconCheckerManager.isBedrockPlayer(player)) {
             manager.debug("Player " + player.getName() + " is a Bedrock/Geyser player — skipping auto check on join.");
             return;

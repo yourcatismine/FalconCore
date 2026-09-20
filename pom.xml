@@ -234,21 +234,10 @@
                         <configuration>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
                             <relocations>
-                                <!-- Relocations -->
-                                <!-- Relocate JDA -->
-                                <relocation>
-                                    <pattern>net.dv8tion.jda</pattern>
-                                    <shadedPattern>com.h2ph.libs.jda</shadedPattern>
-                                </relocation>
                                 <!-- Relocate OkHttp -->
                                 <relocation>
                                     <pattern>okhttp3</pattern>
                                     <shadedPattern>com.h2ph.libs.okhttp3</shadedPattern>
-                                </relocation>
-                                <!-- Relocate GSON -->
-                                <relocation>
-                                    <pattern>com.google.gson</pattern>
-                                    <shadedPattern>com.h2ph.libs.gson</shadedPattern>
                                 </relocation>
                             </relocations>
                             <filters>

@@ -73,6 +73,7 @@ public class Falcon extends JavaPlugin {
     private com.falconcore.survival.auction.AuctionController auctionController;
 
     private com.h2ph.rtp.RTPQueueManager rtpQueueManager;
+    private com.h2ph.rtp.camera.GTACameraManager gtaCameraManager;
 
     private com.h2ph.commands.admin.duels.DuelStatsManager duelStatsManager;
     private com.h2ph.commands.admin.duels.DuelArenaManager duelArenaManager;
@@ -107,6 +108,7 @@ public class Falcon extends JavaPlugin {
     private com.h2ph.managers.InventoryWorthManager inventoryWorthManager;
     private com.h2ph.managers.StashManager stashManager;
     private com.falconcore.survival.collision.PlayerCollisionManager playerCollisionManager;
+    private com.falconcore.survival.resourcepack.ResourcePackManager resourcePackManager;
     private com.falconcore.survival.death.DeathRecordManager deathRecordManager;
     private com.h2ph.commands.economy.BalanceCommand balanceCommand;
 
@@ -120,11 +122,16 @@ public class Falcon extends JavaPlugin {
     private com.h2ph.managers.DiscordManager discordManager;
     private com.h2ph.checker.FalconCheckerManager checkerManager;
     private com.falconcore.anticheat.AntiCheatManager antiCheatManager;
+    private com.falconcore.antixray.AntiXrayManager antiXrayManager;
     private com.falconcore.survival.fakeplayers.FalconBotManager falconBotManager;
     private boolean luckPermsEnabled = false;
     
     public com.falconcore.anticheat.AntiCheatManager getAntiCheatManager() {
         return antiCheatManager;
+    }
+
+    public com.falconcore.antixray.AntiXrayManager getAntiXrayManager() {
+        return antiXrayManager;
     }
 
     public com.falconcore.survival.fakeplayers.FalconBotManager getFalconBotManager() {
@@ -137,6 +144,16 @@ public class Falcon extends JavaPlugin {
 
     public com.h2ph.commands.economy.BalanceCommand getBalanceCommand() {
         return balanceCommand;
+    }
+
+    private com.falconcore.survival.casino.CasinoManager casinoManager;
+
+    public com.falconcore.survival.casino.CasinoManager getCasinoManager() {
+        return casinoManager;
+    }
+
+    public com.falconcore.survival.casino.config.CasinoConfig getCasinoConfig() {
+        return casinoManager != null ? casinoManager.getConfig() : null;
     }
 
     private com.falconcore.survival.spawners.storage.SpawnerManager spawnerManager;
@@ -229,6 +246,7 @@ public class Falcon extends JavaPlugin {
         this.crateEffectsManager = new com.falconcore.survival.manager.CrateEffectsManager(this);
         this.spawnManager = new com.falconcore.survival.manager.SpawnManager(this);
         this.teleportManager = new com.falconcore.survival.manager.TeleportManager(this);
+        this.gtaCameraManager = new com.h2ph.rtp.camera.GTACameraManager(this);
         this.privateMessageManager = new com.h2ph.managers.PrivateMessageManager();
         this.bountyManager = new com.falconcore.survival.manager.BountyManager(this);
 
@@ -347,6 +365,15 @@ public class Falcon extends JavaPlugin {
         getCommand("smithingtable").setExecutor(new com.h2ph.commands.player.SmithingTableCommand());
 
         getCommand("minigames").setExecutor(new com.h2ph.commands.player.MinigamesCommand(this));
+
+        saveResourceSafely("economy/games/casino/config.yml");
+        this.casinoManager = new com.falconcore.survival.casino.CasinoManager(this);
+        com.falconcore.survival.casino.commands.CasinoCommand casinoCommand = new com.falconcore.survival.casino.commands.CasinoCommand(this);
+        if (getCommand("casino") != null) {
+            getCommand("casino").setExecutor(casinoCommand);
+            getCommand("casino").setTabCompleter(casinoCommand);
+        }
+        getServer().getPluginManager().registerEvents(new com.falconcore.survival.casino.listeners.CasinoGUIListener(this), this);
 
         java.io.File ecoConfig = new java.io.File(getDataFolder(), "economy/config.yml");
         org.bukkit.configuration.file.FileConfiguration ecoConfigYaml = org.bukkit.configuration.file.YamlConfiguration
@@ -643,6 +670,7 @@ public class Falcon extends JavaPlugin {
         }
 
         this.playerCollisionManager = new com.falconcore.survival.collision.PlayerCollisionManager(this);
+        this.resourcePackManager = new com.falconcore.survival.resourcepack.ResourcePackManager(this);
 
         com.h2ph.commands.admin.TabCommand tabCommand = new com.h2ph.commands.admin.TabCommand(this);
         getCommand("tab").setExecutor(tabCommand);
@@ -707,6 +735,7 @@ public class Falcon extends JavaPlugin {
         }
 
         this.antiCheatManager = new com.falconcore.anticheat.AntiCheatManager(this);
+        this.antiXrayManager = new com.falconcore.antixray.AntiXrayManager(this);
 
         getCommand("stats").setExecutor(new com.h2ph.commands.player.StatsCommand(this));
 
@@ -904,6 +933,18 @@ public class Falcon extends JavaPlugin {
     public void onDisable() {
         com.h2ph.logger.ConsoleLifecycleLogger.printShutdownHeader();
 
+        if (this.limiterManager != null) {
+            this.limiterManager.shutdown();
+        }
+
+        if (this.casinoManager != null) {
+            this.casinoManager.shutdown();
+        }
+
+        if (this.antiXrayManager != null) {
+            this.antiXrayManager.shutdown();
+        }
+
         if (this.schedulerAdapter != null) {
             this.schedulerAdapter.shutdown();
         }
@@ -960,6 +1001,10 @@ public class Falcon extends JavaPlugin {
 
         if (this.rtpQueueManager != null) {
             this.rtpQueueManager.disable();
+        }
+
+        if (this.gtaCameraManager != null) {
+            this.gtaCameraManager.shutdown();
         }
 
         if (this.limiterManager != null) {
@@ -1053,6 +1098,10 @@ public class Falcon extends JavaPlugin {
 
     public com.h2ph.rtp.RTPQueueManager getRTPQueueManager() {
         return rtpQueueManager;
+    }
+
+    public com.h2ph.rtp.camera.GTACameraManager getGtaCameraManager() {
+        return gtaCameraManager;
     }
 
     public com.h2ph.maintenance.MaintenanceManager getMaintenanceManager() {
@@ -1222,7 +1271,7 @@ public class Falcon extends JavaPlugin {
     }
 
     private void saveAllResources() {
-        com.falconcore.survival.utils.ConfigUpdater.updateAll(this);
+        saveResourceSafely("survival/config.yml");
 
         java.io.File queueFolder = new java.io.File(getDataFolder(), "rtp/queue");
         if (!queueFolder.exists()) {
@@ -1237,7 +1286,7 @@ public class Falcon extends JavaPlugin {
                 if (data != null && data.isTeamChat() && data.getTeamId() != null) {
                     player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
                             new net.md_5.bungee.api.chat.TextComponent(
-                                    com.falconcore.survival.orders.Utils.formatColors("&bYou have team chat on.")));
+                                     com.falconcore.survival.orders.Utils.formatColors("&bYou have team chat on.")));
                 }
             }
         }, 40L, 40L);
@@ -1253,7 +1302,20 @@ public class Falcon extends JavaPlugin {
     }
 
     public void saveResourceSafely(String path) {
-        com.falconcore.survival.utils.ConfigUpdater.update(this, path);
+        if (path == null || path.isEmpty()) return;
+        path = path.replace('\\', '/');
+        if (path.startsWith("/")) {
+            path = path.substring(1);
+        }
+        java.io.File file = new java.io.File(getDataFolder(), path);
+        if (!file.exists()) {
+            file.getParentFile().mkdirs();
+            try {
+                if (getResource(path) != null) {
+                    saveResource(path, false);
+                }
+            } catch (Exception ignored) {}
+        }
     }
 
     public void loadSurvivalConfig() {
@@ -1267,6 +1329,10 @@ public class Falcon extends JavaPlugin {
             loadSurvivalConfig();
         }
         return survivalConfig;
+    }
+
+    public com.falconcore.survival.resourcepack.ResourcePackManager getResourcePackManager() {
+        return resourcePackManager;
     }
 
     public com.falconcore.survival.collision.PlayerCollisionManager getPlayerCollisionManager() {

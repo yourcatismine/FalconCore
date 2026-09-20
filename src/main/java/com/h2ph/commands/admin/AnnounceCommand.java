@@ -27,7 +27,10 @@ public class AnnounceCommand implements CommandExecutor, TabCompleter {
 
     private static final Pattern HEX_PATTERN = Pattern.compile("&#([A-Fa-f0-9]{6})");
 
+    private final Falcon plugin;
+
     public AnnounceCommand(Falcon plugin) {
+        this.plugin = plugin;
     }
 
     @Override
@@ -70,10 +73,26 @@ public class AnnounceCommand implements CommandExecutor, TabCompleter {
         Component subtitleComp = LegacyComponentSerializer.legacySection().deserialize(subtitleText);
         Title title = Title.title(titleComp, subtitleComp);
 
+        String chatMessage = color("&d&l" + StringUtils.toSmallCaps("announcements") + " &8» &f" + message);
+
         for (int i = 0; i < repeat; i++) {
             for (Player player : Bukkit.getOnlinePlayers()) {
-                player.showTitle(title);
-                player.sendActionBar(subtitleComp);
+                com.falconcore.survival.manager.PlayerData data = null;
+                if (plugin != null && plugin.getPlayerDataManager() != null) {
+                    data = plugin.getPlayerDataManager().get(player.getUniqueId());
+                } else if (Falcon.getInstance() != null && Falcon.getInstance().getPlayerDataManager() != null) {
+                    data = Falcon.getInstance().getPlayerDataManager().get(player.getUniqueId());
+                }
+
+                boolean showTitles = data == null || data.isAnnouncementTitles();
+                if (showTitles) {
+                    player.showTitle(title);
+                    player.sendActionBar(subtitleComp);
+                } else {
+                    if (i == 0) {
+                        player.sendMessage(chatMessage);
+                    }
+                }
             }
         }
 

@@ -1,7 +1,7 @@
 package com.h2ph.managers;
 
 import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.event.PacketListenerCommon;
+import com.github.retrooper.packetevents.event.PacketListenerAbstract;
 import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
 import com.github.retrooper.packetevents.event.simple.PacketPlaySendEvent;
@@ -11,6 +11,7 @@ import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerPl
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerPlayerInfo.PlayerData;
 import com.h2ph.Falcon;
 import com.h2ph.utils.LuckPermsUtils;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import me.clip.placeholderapi.PlaceholderAPI;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
@@ -23,44 +24,47 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 
 import java.io.File;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 public class TabListManager implements Listener {
 
     private final Falcon plugin;
     private FileConfiguration config;
     private static final Pattern HEX_PATTERN = Pattern.compile("&#([A-Fa-f0-9]{6})");
-    private final Map<UUID, ScheduledTask> tasks = new HashMap<>();
-    private final Map<UUID, String> lastSentHeaderFooter = new HashMap<>();
-    private final Map<UUID, Map<UUID, String>> playerDisplayNames = new HashMap<>();
+
+    private ScheduledTask autoRefreshTask;
+    private final Map<UUID, String> lastSentHeaderFooter = new ConcurrentHashMap<>();
+    private final Map<UUID, String> playerDisplayNames = new ConcurrentHashMap<>();
     private final Map<UUID, LinkedHashSet<UUID>> tabEntries = new ConcurrentHashMap<>();
     private final Map<UUID, String> realPlayerNames = new ConcurrentHashMap<>();
-    private final PacketListenerCommon tabPacketListener;
+    private final PacketListenerAbstract tabPacketListener;
     private int maxColumns = 4;
     private int maxRows = 20;
     private int maxTabEntries = maxColumns * maxRows;
     private boolean groupSortingEnabled = true;
-    private Map<String, Integer> groupRankings = new HashMap<>();
+    private final Map<String, Integer> groupRankings = new ConcurrentHashMap<>();
+
+    private net.luckperms.api.event.EventSubscription<?> lpUserSub;
+    private net.luckperms.api.event.EventSubscription<?> lpNodeSub;
 
     public TabListManager(Falcon plugin) {
         this.plugin = plugin;
         tabEntries.clear();
         loadConfig();
-        this.tabPacketListener = new PacketListenerCommon(PacketListenerPriority.HIGH) {
+        this.tabPacketListener = new PacketListenerAbstract(PacketListenerPriority.HIGH) {
+            @Override
             public void onPacketSend(PacketSendEvent event) {
-                
                 handleTabPacketSend(event);
             }
         };
         PacketEvents.getAPI().getEventManager().registerListener(tabPacketListener);
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
+        registerLuckPermsEvents();
     }
 
     public void loadConfig() {
@@ -87,12 +91,36 @@ public class TabListManager implements Listener {
         }
     }
 
+    private void registerLuckPermsEvents() {
+        try {
+            if (Bukkit.getPluginManager().isPluginEnabled("LuckPerms")) {
+                net.luckperms.api.LuckPerms lp = net.luckperms.api.LuckPermsProvider.get();
+                lpUserSub = lp.getEventBus().subscribe(plugin, net.luckperms.api.event.user.UserDataRecalculateEvent.class, e -> {
+                    Player p = Bukkit.getPlayer(e.getUser().getUniqueId());
+                    if (p != null && p.isOnline()) {
+                        plugin.getSchedulerAdapter().runEntityTask(p, () -> updatePlayerDisplayName(p));
+                    }
+                });
+                lpNodeSub = lp.getEventBus().subscribe(plugin, net.luckperms.api.event.node.NodeMutateEvent.class, e -> {
+                    if (e.isUser()) {
+                        net.luckperms.api.model.user.User u = (net.luckperms.api.model.user.User) e.getTarget();
+                        Player p = Bukkit.getPlayer(u.getUniqueId());
+                        if (p != null && p.isOnline()) {
+                            plugin.getSchedulerAdapter().runEntityTask(p, () -> updatePlayerDisplayName(p));
+                        }
+                    } else {
+                        refreshAllDisplayNames();
+                    }
+                });
+            }
+        } catch (Throwable ignored) {}
+    }
+
     public void reloadTabList() {
         tabEntries.clear();
         loadConfig();
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            updateTabList(player);
-        }
+        refreshAllDisplayNames();
+        startAutoRefreshTask();
         if (plugin.getNametagManager() != null) {
             plugin.getNametagManager().loadConfig();
         }
@@ -102,20 +130,32 @@ public class TabListManager implements Listener {
         loadConfig();
         for (Player player : Bukkit.getOnlinePlayers()) {
             realPlayerNames.put(player.getUniqueId(), player.getName());
+            if (plugin.getFalconBotManager() != null && (plugin.getFalconBotManager().isBot(player.getUniqueId()) || plugin.getFalconBotManager().isBot(player.getName()))) {
+                try {
+                    player.setPlayerListName(player.getName());
+                } catch (Throwable ignored) {}
+                continue;
+            }
             initTabList(player);
             updateTabList(player);
-            startTask(player);
         }
+        startAutoRefreshTask();
     }
 
     public void shutdown() {
-        for (ScheduledTask task : tasks.values()) {
-            task.cancel();
+        stopAutoRefreshTask();
+        if (lpUserSub != null) {
+            try { lpUserSub.close(); } catch (Throwable ignored) {}
+            lpUserSub = null;
         }
-        tasks.clear();
+        if (lpNodeSub != null) {
+            try { lpNodeSub.close(); } catch (Throwable ignored) {}
+            lpNodeSub = null;
+        }
         lastSentHeaderFooter.clear();
         playerDisplayNames.clear();
         tabEntries.clear();
+        realPlayerNames.clear();
         PacketEvents.getAPI().getEventManager().unregisterListener(tabPacketListener);
     }
 
@@ -123,43 +163,49 @@ public class TabListManager implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         realPlayerNames.put(player.getUniqueId(), player.getName());
+
+        if (plugin.getFalconBotManager() != null && (plugin.getFalconBotManager().isBot(player.getUniqueId()) || plugin.getFalconBotManager().isBot(player.getName()))) {
+            try {
+                player.setPlayerListName(player.getName());
+            } catch (Throwable ignored) {}
+            plugin.getSchedulerAdapter().runTaskLater(() -> {
+                for (Player online : Bukkit.getOnlinePlayers()) {
+                    if (plugin.getFalconBotManager() == null || (!plugin.getFalconBotManager().isBot(online.getUniqueId()) && !plugin.getFalconBotManager().isBot(online.getName()))) {
+                        updatePlayerDisplayName(online);
+                    }
+                }
+            }, 5L);
+            return;
+        }
+
         initTabList(player);
         updateTabList(player);
-        startTask(player);
 
-        plugin.getSchedulerAdapter().runTaskLater(() -> {
-            if (player.isOnline()) {
-                updateTabList(player);
-                for (Player online : Bukkit.getOnlinePlayers()) {
-                    updatePlayerDisplayNames(online);
+        // Staggered silent passes to catch asynchronous LuckPerms load immediately
+        long[] joinDelays = new long[]{2L, 5L, 10L, 20L, 40L};
+        for (long delay : joinDelays) {
+            plugin.getSchedulerAdapter().runTaskLater(() -> {
+                if (player.isOnline()) {
+                    updateTabList(player);
+                    if (plugin.getNametagManager() != null) {
+                        plugin.getNametagManager().sendExistingNametagsTo(player);
+                        plugin.getNametagManager().processNametagFor(player, false);
+                    }
+                    for (Player online : Bukkit.getOnlinePlayers()) {
+                        updatePlayerDisplayName(online);
+                        if (plugin.getNametagManager() != null) {
+                            plugin.getNametagManager().processNametagFor(online, false);
+                        }
+                    }
                 }
-            }
-        }, 5L);
-
-        plugin.getSchedulerAdapter().runTaskLater(() -> {
-            if (player.isOnline()) {
-                updateTabList(player);
-                for (Player online : Bukkit.getOnlinePlayers()) {
-                    updatePlayerDisplayNames(online);
-                }
-            }
-        }, 20L);
+            }, delay);
+        }
     }
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
-        stopTask(player);
         UUID uuid = player.getUniqueId();
-        
-        String realName = getRealPlayerName(player);
-        if (realName != null && !realName.equals(player.getName())) {
-            try {
-                plugin.getLogger().info("Using real name '" + realName + "' for disconnect of hidden player");
-            } catch (Exception e) {
-                plugin.getLogger().warning("Error handling disconnect for player: " + e.getMessage());
-            }
-        }
         
         lastSentHeaderFooter.remove(uuid);
         playerDisplayNames.remove(uuid);
@@ -167,19 +213,45 @@ public class TabListManager implements Listener {
         realPlayerNames.remove(uuid);
     }
 
-    private void startTask(Player player) {
-        stopTask(player);
-        long delay = Math.abs(player.getUniqueId().hashCode() % 20);
-        ScheduledTask task = player.getScheduler().runAtFixedRate(plugin, (t) -> {
-            updateTabList(player);
-        }, null, delay, 20L);
-        tasks.put(player.getUniqueId(), task);
+    private synchronized void startAutoRefreshTask() {
+        stopAutoRefreshTask();
+        if (!config.getBoolean("TAB.ENABLED", true)) return;
+
+        long intervalTicks = Math.max(10L, config.getLong("TAB.REFRESH_INTERVAL", 20L));
+        try {
+            autoRefreshTask = plugin.getServer().getAsyncScheduler().runAtFixedRate(plugin, (t) -> {
+                if (!config.getBoolean("TAB.ENABLED", true)) return;
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    if (player == null || !player.isOnline()) continue;
+                    updateHeaderFooter(player);
+                    updatePlayerDisplayName(player);
+                    if (plugin.getNametagManager() != null) {
+                        plugin.getNametagManager().processNametagFor(player, false);
+                    }
+                }
+            }, 1L, intervalTicks * 50L, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (Throwable e) {
+            // Fallback for non-Folia environments
+            plugin.getSchedulerAdapter().runTaskTimerAsync(() -> {
+                if (!config.getBoolean("TAB.ENABLED", true)) return;
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    if (player == null || !player.isOnline()) continue;
+                    updateHeaderFooter(player);
+                    updatePlayerDisplayName(player);
+                    if (plugin.getNametagManager() != null) {
+                        plugin.getNametagManager().processNametagFor(player, false);
+                    }
+                }
+            }, 20L, intervalTicks);
+        }
     }
 
-    private void stopTask(Player player) {
-        ScheduledTask task = tasks.remove(player.getUniqueId());
-        if (task != null) {
-            task.cancel();
+    private synchronized void stopAutoRefreshTask() {
+        if (autoRefreshTask != null) {
+            try {
+                autoRefreshTask.cancel();
+            } catch (Throwable ignored) {}
+            autoRefreshTask = null;
         }
     }
 
@@ -195,10 +267,12 @@ public class TabListManager implements Listener {
             return;
 
         updateHeaderFooter(player);
-        updatePlayerDisplayNames(player);
+        updatePlayerDisplayName(player);
     }
 
     private void updateHeaderFooter(Player player) {
+        if (player == null || !player.isOnline()) return;
+
         List<String> headerLines = config.getStringList("TAB.TITLE.header");
         List<String> footerLines = config.getStringList("TAB.TITLE.footer");
 
@@ -219,7 +293,7 @@ public class TabListManager implements Listener {
             footerText.append(parsePlaceholders(player, footerLines.get(i)));
         }
 
-        String headerFooterKey = player.getUniqueId() + ":" + headerText.toString() + ":" + footerText.toString();
+        String headerFooterKey = headerText.toString() + ":" + footerText.toString();
         String lastSent = lastSentHeaderFooter.get(player.getUniqueId());
 
         if (lastSent != null && lastSent.equals(headerFooterKey))
@@ -231,81 +305,105 @@ public class TabListManager implements Listener {
         Component headerComp = LegacyComponentSerializer.legacySection().deserialize(headerColored);
         Component footerComp = LegacyComponentSerializer.legacySection().deserialize(footerColored);
 
-        player.sendPlayerListHeaderAndFooter(headerComp, footerComp);
         lastSentHeaderFooter.put(player.getUniqueId(), headerFooterKey);
+        try {
+            player.sendPlayerListHeaderAndFooter(headerComp, footerComp);
+        } catch (Throwable ignored) {}
     }
 
-    private void updatePlayerDisplayNames(Player player) {
-        synchronized (this) {
-            Map<UUID, String> playerNames = playerDisplayNames.computeIfAbsent(player.getUniqueId(), k -> new HashMap<>());
+    public void updatePlayerDisplayNames(Player player) {
+        updatePlayerDisplayName(player);
+    }
 
-            List<Player> sortedPlayers;
-            if (groupSortingEnabled) {
-                sortedPlayers = Bukkit.getOnlinePlayers().stream()
-                        .sorted(this::comparePlayersByGroupRanking)
-                        .collect(Collectors.toList());
+    public void updatePlayerDisplayName(Player player) {
+        if (player == null || !player.isOnline()) return;
+        UUID uuid = player.getUniqueId();
+
+        if (plugin.getFalconBotManager() != null && (plugin.getFalconBotManager().isBot(uuid) || plugin.getFalconBotManager().isBot(player.getName()))) {
+            return;
+        }
+
+        if (player.getGameMode() == org.bukkit.GameMode.SPECTATOR && !player.hasPermission("falcon.admin.see_spectators")) {
+            return;
+        }
+
+        String prefix = LuckPermsUtils.getPrefix(player);
+        if ((prefix == null || prefix.isEmpty()) && plugin.getServer().getPluginManager().isPluginEnabled("PlaceholderAPI")) {
+            try {
+                String p = PlaceholderAPI.setPlaceholders(player, "%luckperms_prefix%");
+                if (p != null && !p.isEmpty() && !p.equals("%luckperms_prefix%")) {
+                    prefix = p;
+                }
+                if (prefix == null || prefix.isEmpty()) {
+                    String vp = PlaceholderAPI.setPlaceholders(player, "%vault_prefix%");
+                    if (vp != null && !vp.isEmpty() && !vp.equals("%vault_prefix%")) {
+                        prefix = vp;
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        com.falconcore.survival.manager.PlayerData data = plugin.getPlayerDataManager().get(uuid);
+        String nameToDisplay = player.getName();
+        if (data != null && data.isDisguised()) {
+            String disguiseName = data.getDisguiseName();
+            if (disguiseName != null && !disguiseName.isEmpty()) {
+                nameToDisplay = disguiseName;
+                String disguisePrefix = LuckPermsUtils.getPrefix(Bukkit.getOfflinePlayer(disguiseName));
+                if (disguisePrefix != null && !disguisePrefix.isEmpty()) {
+                    prefix = disguisePrefix;
+                }
+            }
+        }
+
+        String playerDisplayName = sanitizePlayerName(nameToDisplay);
+        String displayName;
+
+        if (prefix != null && !prefix.isEmpty()) {
+            prefix = color(prefix);
+            if (!prefix.endsWith(" ") && !prefix.endsWith("§r") && !prefix.endsWith("&r")) {
+                prefix = prefix + " ";
+            }
+            displayName = prefix + color("&f" + playerDisplayName);
+        } else {
+            displayName = color("&7" + playerDisplayName);
+        }
+
+        String tierTag = plugin.getTierRankManager() != null ? plugin.getTierRankManager().getPlayerFormattedTier(uuid) : null;
+        if (tierTag != null && !tierTag.isEmpty()) {
+            displayName = displayName + " " + color(tierTag);
+        }
+
+        String lastDisplayName = playerDisplayNames.get(uuid);
+        if (lastDisplayName == null || !lastDisplayName.equals(displayName)) {
+            playerDisplayNames.put(uuid, displayName);
+            final String finalDisplayName = displayName;
+            final Component finalComponent = LegacyComponentSerializer.legacySection().deserialize(finalDisplayName);
+            if (Bukkit.isPrimaryThread()) {
+                try {
+                    player.playerListName(finalComponent);
+                } catch (Throwable ignored) {}
+                try {
+                    player.setPlayerListName(finalDisplayName);
+                } catch (Throwable ignored) {}
             } else {
-                sortedPlayers = new ArrayList<>(Bukkit.getOnlinePlayers());
-            }
-
-            Set<UUID> currentPlayers = new HashSet<>();
-            
-            for (Player onlinePlayer : sortedPlayers) {
-                UUID onlineUUID = onlinePlayer.getUniqueId();
-                currentPlayers.add(onlineUUID);
-
-                if (onlinePlayer.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
-                    if (!player.hasPermission("falcon.admin.see_spectators")) {
-                        continue;
-                    }
-                }
-
-                String prefix = LuckPermsUtils.getPrefix(onlinePlayer);
-                
-                com.falconcore.survival.manager.PlayerData data = plugin.getPlayerDataManager().get(onlineUUID);
-                
-                boolean shouldShowDisguise = data.isDisguised() && 
-                    (player.getUniqueId().equals(onlineUUID) ||
-                     (player == null || !player.hasPermission("falcon.disguise.see")));
-                
-                if (shouldShowDisguise) {
-                    String disguiseName = data.getDisguiseName();
-                    if (disguiseName != null) {
-                        org.bukkit.OfflinePlayer disguiseTarget = org.bukkit.Bukkit.getOfflinePlayer(disguiseName);
-                        String disguisePrefix = LuckPermsUtils.getPrefix(disguiseTarget);
-                        if (disguisePrefix != null && !disguisePrefix.isEmpty()) {
-                            prefix = disguisePrefix;
-                        }
-                    }
-                }
-                
-                String playerDisplayName = getPlayerDisplayName(onlinePlayer, player);
-                String displayName;
-
-                if (prefix != null && !prefix.isEmpty()) {
-                    prefix = color(prefix);
-                    displayName = prefix + playerDisplayName;
-                } else {
-                    displayName = playerDisplayName;
-                }
-
-                String tierTag = plugin.getTierRankManager() != null ? plugin.getTierRankManager().getPlayerFormattedTier(onlineUUID) : null;
-                if (tierTag != null && !tierTag.isEmpty()) {
-                    displayName = displayName + " " + tierTag;
-                }
-
-                String lastDisplayName = playerNames.get(onlineUUID);
-                if (lastDisplayName == null || !lastDisplayName.equals(displayName)) {
+                plugin.getSchedulerAdapter().runEntityTask(player, () -> {
                     try {
-                        onlinePlayer.setPlayerListName(displayName);
-                        playerNames.put(onlineUUID, displayName);
-                    } catch (Exception e) {
-                        plugin.getLogger().warning("Failed to update display name for " + sanitizePlayerName(onlinePlayer.getName()) + ": " + e.getMessage());
-                    }
-                }
+                        player.playerListName(finalComponent);
+                    } catch (Throwable ignored) {}
+                    try {
+                        player.setPlayerListName(finalDisplayName);
+                    } catch (Throwable ignored) {}
+                });
             }
-            
-            playerNames.keySet().retainAll(currentPlayers);
+        }
+    }
+
+    public void refreshAllDisplayNames() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (player != null && player.isOnline()) {
+                updatePlayerDisplayName(player);
+            }
         }
     }
 
@@ -358,6 +456,7 @@ public class TabListManager implements Listener {
         }
         
         playerDisplayNames.clear();
+        lastSentHeaderFooter.clear();
         
         for (Player player : Bukkit.getOnlinePlayers()) {
             updateTabList(player);
@@ -439,13 +538,13 @@ public class TabListManager implements Listener {
                 UUID u1 = (d1.getUserProfile() != null) ? d1.getUserProfile().getUUID() : null;
                 UUID u2 = (d2.getUserProfile() != null) ? d2.getUserProfile().getUUID() : null;
                 if (u1 == null || u2 == null) return 0;
-                                Player p1 = Bukkit.getPlayer(u1);
+                Player p1 = Bukkit.getPlayer(u1);
                 Player p2 = Bukkit.getPlayer(u2);
-                                int r1 = (p1 != null) ? getGroupRanking(p1) : groupRankings.getOrDefault("default", 0);
+                int r1 = (p1 != null) ? getGroupRanking(p1) : groupRankings.getOrDefault("default", 0);
                 int r2 = (p2 != null) ? getGroupRanking(p2) : groupRankings.getOrDefault("default", 0);
-                                int cmp = Integer.compare(r2, r1); // higher ranking first
+                int cmp = Integer.compare(r2, r1); // higher ranking first
                 if (cmp != 0) return cmp;
-                                String n1 = (p1 != null) ? sanitizePlayerName(p1.getName()) : sanitizePlayerName(realPlayerNames.getOrDefault(u1, ""));
+                String n1 = (p1 != null) ? sanitizePlayerName(p1.getName()) : sanitizePlayerName(realPlayerNames.getOrDefault(u1, ""));
                 String n2 = (p2 != null) ? sanitizePlayerName(p2.getName()) : sanitizePlayerName(realPlayerNames.getOrDefault(u2, ""));
                 return n1.compareToIgnoreCase(n2);
             });
@@ -514,10 +613,19 @@ public class TabListManager implements Listener {
             PlayerData data = iterator.next();
             UUID entryUuid = extractUuid(data);
 
-            if (entryUuid == null || !visible.contains(entryUuid)) {
+            if (entryUuid == null) {
                 iterator.remove();
                 modified = true;
+                continue;
             }
+
+            if (!visible.isEmpty() && visible.size() >= maxTabEntries && !visible.contains(entryUuid)) {
+                iterator.remove();
+                modified = true;
+                continue;
+            }
+
+            visible.add(entryUuid);
         }
 
         return modified;
@@ -631,7 +739,7 @@ public class TabListManager implements Listener {
         if (targetPlayer == null) return "";
         
         com.falconcore.survival.manager.PlayerData data = plugin.getPlayerDataManager().get(targetPlayer.getUniqueId());
-        if (data.isDisguised()) {
+        if (data != null && data.isDisguised()) {
             String disguiseName = data.getDisguiseName();
             
             boolean shouldShowDisguise = (observer != null && observer.getUniqueId().equals(targetPlayer.getUniqueId())) || 

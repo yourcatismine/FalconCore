@@ -1,0 +1,141 @@
+# ==============================================================================
+#                       FalconCore Custom Anti-Xray
+#                    Packet-Level Obfuscation Anti-Cheat
+# ==============================================================================
+
+# Master switch to enable or disable Anti-Xray
+enabled: true
+
+# Engine Mode:
+# 1 = Hide Buried Ores as Stone/Deepslate/Netherrack (RECOMMENDED for Survival)
+#     - Real buried ores inside walls are disguised as regular stone/deepslate/netherrack.
+#     - Natural exposed ores inside caves/ravines/ceilings remain 100% VISIBLE naturally at any distance.
+#     - 100% clean experience for normal players (no fake ore flashing or pop-in glitches).
+#     - Completely blinds X-Rayers (0 buried ores visible through solid walls).
+# 2 = Obfuscate All Solid Rock into Random Fake Ores
+#     - Disguises all occluded rock as random fake ores.
+#     - Confuses X-Rayers with fake ore clouds.
+engine-mode: 1
+
+# Reveal radius (in blocks) around broken blocks when mined to reveal newly exposed buried ores
+reveal-radius: 2
+
+# Cave reveal distance (in blocks):
+# Exposed ores inside deep caves are disguised as stone from afar (blocking X-ray from above ground),
+# and automatically reveal into real ores when a player approaches/enters within this distance.
+cave-reveal-distance: 28
+
+# ==============================================================================
+#           Anti-Freecam (Distance-Based Chunk & Subterranean Obfuscation)
+# ==============================================================================
+# When a player activates Freecam / ReplayMod / Camera tools:
+# Their client camera detaches while their true server-side player entity remains stationary.
+# As their camera hits the configured distance boundary (e.g. 50 blocks), all underground
+# caves, bases, rooms, chests, and terrain outside this radius are packet-obfuscated into
+# solid walls of Fake Deepslate / Fake Stone (Donut SMP anti-freecam mechanic).
+# When the player's true server-side entity moves forward, chunks/blocks are dynamically
+# restored in real-time with zero TPS impact.
+anti-freecam:
+  enabled: true
+  # Horizontal rendering / visibility radius (in blocks) around player's true server-side location (default: 50 blocks / ~3 chunks)
+  distance: 35
+  # Vertical downward distance (in blocks) below which subterranean deepslate caves are blocked with a Fake Deepslate floor (default: 20 blocks)
+  vertical-distance: 50
+  # Maximum Y level below which anti-freecam deepslate blockade applies per dimension
+  # Overworld: Y <= 0 (Deepslate level only, never above deepslate/surface)
+  overworld-max-y: 0
+  # Nether: Y <= 127 (below nether bedrock ceiling)
+  nether-max-y: 127
+  # End: Y <= 255
+  end-max-y: 255
+
+
+
+# Debug logging in console
+debug: false
+
+# Permissions
+permissions:
+  bypass: "falcon.antixray.bypass"
+  admin: "falcon.antixray.admin"
+
+# Height limits per world type
+height-limits:
+  overworld:
+    min-y: -64
+    max-y: 319
+    deepslate-transition-y: 0
+  nether:
+    min-y: 0
+    max-y: 127
+  end:
+    min-y: 0
+    max-y: 255
+
+# Target blocks to hide when fully occluded (not exposed to air)
+hidden-blocks:
+  # Base solid stone/rock
+  - "stone"
+  - "deepslate"
+  - "tuff"
+  - "andesite"
+  - "diorite"
+  - "granite"
+  - "netherrack"
+  - "basalt"
+  - "blackstone"
+  - "end_stone"
+  # Real ores to hide when buried
+  - "diamond_ore"
+  - "deepslate_diamond_ore"
+  - "ancient_debris"
+  - "gold_ore"
+  - "deepslate_gold_ore"
+  - "nether_gold_ore"
+  - "iron_ore"
+  - "deepslate_iron_ore"
+  - "emerald_ore"
+  - "deepslate_emerald_ore"
+  - "redstone_ore"
+  - "deepslate_redstone_ore"
+  - "lapis_ore"
+  - "deepslate_lapis_ore"
+  - "copper_ore"
+  - "deepslate_copper_ore"
+  - "coal_ore"
+  - "deepslate_coal_ore"
+  - "nether_quartz_ore"
+  - "raw_iron_block"
+  - "raw_gold_block"
+  - "raw_copper_block"
+  - "chest"
+  - "spawner"
+
+# Fake ores to replace occluded blocks with (Engine Mode 2)
+replacement-blocks:
+  overworld:
+    - "diamond_ore"
+    - "gold_ore"
+    - "iron_ore"
+    - "emerald_ore"
+    - "redstone_ore"
+    - "lapis_ore"
+    - "copper_ore"
+    - "coal_ore"
+  deepslate:
+    - "deepslate_diamond_ore"
+    - "deepslate_gold_ore"
+    - "deepslate_iron_ore"
+    - "deepslate_emerald_ore"
+    - "deepslate_redstone_ore"
+    - "deepslate_lapis_ore"
+    - "deepslate_copper_ore"
+    - "deepslate_coal_ore"
+  nether:
+    - "ancient_debris"
+    - "nether_gold_ore"
+    - "nether_quartz_ore"
+  end:
+    - "end_stone_bricks"
+    - "purpur_block"
+    - "ender_chest"
