@@ -23,6 +23,7 @@ public class AntiXrayConfig {
     private int netherMinY = 0;
     private int netherMaxY = 127;
 
+    private boolean endEnabled = false;
     private int endMinY = 0;
     private int endMaxY = 255;
 
@@ -32,10 +33,10 @@ public class AntiXrayConfig {
 
     // Anti-Freecam
     private boolean antiFreecamEnabled = true;
-    private int antiFreecamDistance = 50;
-    private int antiFreecamVerticalDistance = 20;
+    private int antiFreecamDistance = 55;
+    private int antiFreecamVerticalDistance = 80;
     private boolean antiFreecamFillCaves = true;
-    private int antiFreecamOverworldMaxY = 64;
+    private int antiFreecamOverworldMaxY = 0;
     private int antiFreecamNetherMaxY = 127;
     private int antiFreecamEndMaxY = 255;
     private int antiFreecamUpdateThresholdBlocks = 6;
@@ -77,6 +78,7 @@ public class AntiXrayConfig {
         this.netherMinY = config.getInt("height-limits.nether.min-y", 0);
         this.netherMaxY = config.getInt("height-limits.nether.max-y", 127);
 
+        this.endEnabled = config.getBoolean("height-limits.end.enabled", false);
         this.endMinY = config.getInt("height-limits.end.min-y", 0);
         this.endMaxY = config.getInt("height-limits.end.max-y", 255);
 
@@ -85,10 +87,10 @@ public class AntiXrayConfig {
         this.debug = config.getBoolean("debug", false);
 
         this.antiFreecamEnabled = config.getBoolean("anti-freecam.enabled", true);
-        this.antiFreecamDistance = config.getInt("anti-freecam.distance", 50);
-        this.antiFreecamVerticalDistance = config.getInt("anti-freecam.vertical-distance", 20);
+        this.antiFreecamDistance = config.getInt("anti-freecam.distance", 55);
+        this.antiFreecamVerticalDistance = config.getInt("anti-freecam.vertical-distance", 80);
         this.antiFreecamFillCaves = config.getBoolean("anti-freecam.fill-caves", false);
-        this.antiFreecamOverworldMaxY = config.getInt("anti-freecam.overworld-max-y", 64);
+        this.antiFreecamOverworldMaxY = config.getInt("anti-freecam.overworld-max-y", 0);
         this.antiFreecamNetherMaxY = config.getInt("anti-freecam.nether-max-y", 127);
         this.antiFreecamEndMaxY = config.getInt("anti-freecam.end-max-y", 255);
         this.antiFreecamUpdateThresholdBlocks = config.getInt("anti-freecam.update-threshold-blocks", 6);
@@ -208,6 +210,28 @@ public class AntiXrayConfig {
 
     public int getNetherMaxY() {
         return netherMaxY;
+    }
+
+    public boolean isEndEnabled() {
+        return endEnabled;
+    }
+
+    public boolean isEndWorld(org.bukkit.World world) {
+        if (world == null) return false;
+        if (world.getEnvironment() == org.bukkit.World.Environment.THE_END) return true;
+        String name = world.getName().toLowerCase();
+        return name.equals("the_end") || name.equals("end")
+                || name.endsWith("_the_end") || name.endsWith("_end")
+                || name.contains("_the_end_") || name.contains("the_end")
+                || name.contains("the-end") || name.contains("dim1");
+    }
+
+    public boolean isWorldEnabled(org.bukkit.World world) {
+        if (world == null) return false;
+        if (isEndWorld(world)) {
+            return endEnabled;
+        }
+        return true;
     }
 
     public int getEndMinY() {

@@ -85,7 +85,8 @@ public class GTACameraManager implements Listener {
     }
 
     public boolean isAnimating(UUID uuid) {
-        return activeSessions.containsKey(uuid);
+        GTACameraSession session = activeSessions.get(uuid);
+        return session != null && session.isActive();
     }
 
     public boolean isAnimating(Player player) {
@@ -119,13 +120,6 @@ public class GTACameraManager implements Listener {
                 // Ignore internal spectate teleports
                 return;
             }
-        }
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onGameModeChange(PlayerGameModeChangeEvent event) {
-        if (isAnimating(event.getPlayer())) {
-            // Keep spectator active during session
         }
     }
 }

@@ -13,6 +13,7 @@ public class OcclusionRegistry {
     private final boolean[] occluding = new boolean[MAX_BLOCK_STATES];
     private final boolean[] replaceable = new boolean[MAX_BLOCK_STATES];
     private final boolean[] targetOre = new boolean[MAX_BLOCK_STATES];
+    private final boolean[] naturalRockOrAir = new boolean[MAX_BLOCK_STATES];
 
     private int[] overworldReplacements = new int[0];
     private int[] deepslateReplacements = new int[0];
@@ -32,6 +33,7 @@ public class OcclusionRegistry {
         Arrays.fill(occluding, false);
         Arrays.fill(replaceable, false);
         Arrays.fill(targetOre, false);
+        Arrays.fill(naturalRockOrAir, false);
 
         Set<String> hiddenConfig = config.getHiddenBlocks();
 
@@ -52,6 +54,7 @@ public class OcclusionRegistry {
                         occluding[id] = !isNonOccluding;
                         replaceable[id] = isHidden;
                         targetOre[id] = isOre || (isHidden && isOreOrValuable(name));
+                        naturalRockOrAir[id] = isNaturalSubterraneanBlock(name);
                     }
                 }
             } catch (Throwable ignored) {}
@@ -74,6 +77,7 @@ public class OcclusionRegistry {
                 occluding[id] = !isNonOccluding;
                 replaceable[id] = isHidden;
                 targetOre[id] = isOre || (isHidden && isOreOrValuable(name));
+                naturalRockOrAir[id] = isNaturalSubterraneanBlock(name);
             } catch (Throwable ignored) {}
         }
 
@@ -189,6 +193,29 @@ public class OcclusionRegistry {
         if (name.contains("roots") || name.contains("spore") || name.contains("sprout") || name.contains("fungus") || name.contains("mushroom") || name.contains("stem")) return true;
         if (name.contains("pitcher") || name.contains("sniffer") || name.contains("bush") || name.contains("sea_pickle") || name.contains("kelp") || name.contains("seagrass")) return true;
         if (name.contains("end_rod") || name.contains("daylight") || name.contains("cake") || name.contains("cauldron") || name.contains("composter")) return true;
+        return false;
+    }
+
+    public boolean isNaturalSubterraneanBlock(String name) {
+        if (name == null || name.isEmpty()) return true;
+        if (name.contains("air")) return true;
+        if (name.equals("stone") || name.equals("deepslate") || name.equals("tuff") || name.equals("bedrock")) return true;
+        if (name.equals("andesite") || name.equals("diorite") || name.equals("granite") || name.equals("gravel") || name.equals("dirt")) return true;
+        if (name.equals("calcite") || name.equals("smooth_basalt") || name.equals("dripstone_block") || name.equals("pointed_dripstone")) return true;
+        if (name.equals("sculk") || name.equals("sculk_vein") || name.equals("sculk_catalyst") || name.equals("sculk_sensor") || name.equals("sculk_shrieker")) return true;
+        if (name.equals("netherrack") || name.equals("basalt") || name.equals("blackstone") || name.equals("soul_sand") || name.equals("soul_soil") || name.equals("magma_block")) return true;
+        if (name.equals("end_stone")) return true;
+        if (name.contains("ore") || name.equals("ancient_debris")) return true;
+        if (name.contains("raw_") && name.contains("block")) return true;
+        if (name.equals("lava") || name.equals("water")) return true;
+        return false;
+    }
+
+    public boolean isNaturalRockOrAir(int stateId) {
+        if (stateId == 0) return true; // Air is always natural
+        if (stateId >= 0 && stateId < naturalRockOrAir.length) {
+            return naturalRockOrAir[stateId];
+        }
         return false;
     }
 

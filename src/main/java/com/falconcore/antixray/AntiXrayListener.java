@@ -109,8 +109,10 @@ public class AntiXrayListener implements Listener {
         if (!config.isEnabled()) return;
 
         Block block = event.getBlock();
-        Location blockLoc = block.getLocation();
         World world = block.getWorld();
+        if (!config.isWorldEnabled(world)) return;
+
+        Location blockLoc = block.getLocation();
         int bx = block.getX();
         int by = block.getY();
         int bz = block.getZ();
@@ -169,6 +171,7 @@ public class AntiXrayListener implements Listener {
 
         Player player = event.getPlayer();
         World world = player.getWorld();
+        if (!config.isWorldEnabled(world)) return;
         String worldName = world.getName();
         int chunkX = toX >> 4;
         int chunkZ = toZ >> 4;

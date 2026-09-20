@@ -109,7 +109,11 @@ public class GTACameraSession {
 
         // Put player into Spectator mode and set spectator target
         player.setGameMode(GameMode.SPECTATOR);
-        player.setSpectatorTarget(cameraAnchor);
+        try {
+            player.setSpectatorTarget(cameraAnchor);
+        } catch (Throwable t) {
+            plugin.getLogger().warning("[GTACamera] Failed to set initial spectator target for " + player.getName() + ": " + t.getMessage());
+        }
 
         // Start preloading chunks at destination early
         preloadDestinationChunks();
@@ -227,6 +231,9 @@ public class GTACameraSession {
 
                     Location spawnLoc = skyDestination.clone();
                     try {
+                        if (player.getGameMode() != GameMode.SPECTATOR) {
+                            player.setGameMode(GameMode.SPECTATOR);
+                        }
                         cameraAnchor = spawnAnchor(destWorld, spawnLoc);
                         cameraAnchor.setHeadPose(new EulerAngle(Math.toRadians(80.0), 0, 0));
                         player.setSpectatorTarget(cameraAnchor);
@@ -300,6 +307,8 @@ public class GTACameraSession {
     }
 
     private void cleanup(boolean completedSuccessfully) {
+        currentPhase = completedSuccessfully ? Phase.FINISHED : Phase.CANCELLED;
+
         if (runTask != null) {
             runTask.cancel();
             runTask = null;
@@ -314,12 +323,23 @@ public class GTACameraSession {
         }
 
         if (player.isOnline()) {
-            player.setSpectatorTarget(null);
+            try {
+                if (player.getGameMode() == GameMode.SPECTATOR) {
+                    player.setSpectatorTarget(null);
+                }
+            } catch (Throwable ignored) {
+            }
 
             Location target = completedSuccessfully ? destinationLocation : originLocation;
             player.teleportAsync(target).thenAccept(success -> {
                 plugin.getSchedulerAdapter().runEntityTask(player, () -> {
-                    player.setGameMode(originalGameMode);
+                    try {
+                        GameMode targetMode = (originalGameMode != null && originalGameMode != GameMode.SPECTATOR)
+                                ? originalGameMode : GameMode.SURVIVAL;
+                        player.setGameMode(targetMode);
+                    } catch (Throwable t) {
+                        plugin.getLogger().warning("[GTACamera] Failed to restore gamemode for " + player.getName() + ": " + t.getMessage());
+                    }
                     if (completedSuccessfully && playSounds) {
                         try {
                             player.playSound(destinationLocation, Sound.ENTITY_ENDERMAN_TELEPORT, 1.0f, 1.0f);
@@ -372,8 +392,13 @@ public class GTACameraSession {
                 w.getChunkAtAsync(loc.getBlockX() >> 4, loc.getBlockZ() >> 4);
             }
 
-            if (player.isOnline() && player.getSpectatorTarget() != cameraAnchor) {
-                player.setSpectatorTarget(cameraAnchor);
+            if (player.isOnline()) {
+                try {
+                    if (player.getGameMode() == GameMode.SPECTATOR && player.getSpectatorTarget() != cameraAnchor) {
+                        player.setSpectatorTarget(cameraAnchor);
+                    }
+                } catch (Throwable ignored) {
+                }
             }
         }
     }
@@ -407,6 +432,10 @@ public class GTACameraSession {
 
     public Player getPlayer() {
         return player;
+    }
+
+    public boolean isActive() {
+        return currentPhase == Phase.ASCENDING || currentPhase == Phase.PANNING || currentPhase == Phase.DESCENDING;
     }
 
     public Phase getCurrentPhase() {

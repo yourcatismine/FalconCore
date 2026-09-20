@@ -42,6 +42,8 @@ public class AntiXrayProcessor {
         long start = System.nanoTime();
 
         World world = player.getWorld();
+        if (!config.isWorldEnabled(world)) return;
+
         String worldName = world.getName();
         World.Environment env = world.getEnvironment();
 
@@ -53,7 +55,7 @@ public class AntiXrayProcessor {
             worldType = 1;
             minY = config.getNetherMinY();
             maxY = config.getNetherMaxY();
-        } else if (env == World.Environment.THE_END) {
+        } else if (env == World.Environment.THE_END || config.isEndWorld(world)) {
             worldType = 2;
             minY = config.getEndMinY();
             maxY = config.getEndMaxY();
@@ -121,25 +123,20 @@ public class AntiXrayProcessor {
 
             int sectionMaxY = sectionBaseY + 15;
 
-            // Planar chunk-based distance check for Anti-Freecam in Deepslate layer (Y <= 0 in Overworld)
+            // Planar chunk-based distance check for Anti-Freecam in Deepslate layer (Y <= 0 in Overworld, Y <= 127 in Nether)
+            // NEVER active in The End dimension
             int playerChunkX = playerX >> 4;
             int playerChunkZ = playerZ >> 4;
             int chunkRadius = (freecamDist >> 4);
-            boolean sectionOutsideFreecam = antiFreecam && sectionMaxY <= freecamMaxY
+            boolean isFreecamDimension = (worldType == 0 || worldType == 1);
+            boolean sectionOutsideFreecam = isFreecamDimension && antiFreecam && sectionMaxY <= freecamMaxY
                     && (Math.abs(chunkX - playerChunkX) > chunkRadius
                     || Math.abs(chunkZ - playerChunkZ) > chunkRadius
                     || (playerY - sectionMaxY) > freecamVertDist);
 
             // High-speed batch fill for fully outside Deepslate sections (Donut SMP Freecam blockade)
             if (sectionOutsideFreecam) {
-                int fakeStateId;
-                if (worldType == 1) {
-                    fakeStateId = registry.getDefaultNetherrackId();
-                } else if (worldType == 2) {
-                    fakeStateId = registry.getDefaultEndStoneId();
-                } else {
-                    fakeStateId = registry.getDefaultDeepslateId();
-                }
+                int fakeStateId = (worldType == 1) ? registry.getDefaultNetherrackId() : registry.getDefaultDeepslateId();
 
                 for (int ly = 0; ly < 16; ly++) {
                     int worldY = sectionBaseY + ly;
@@ -147,6 +144,10 @@ public class AntiXrayProcessor {
 
                     for (int lz = 0; lz < 16; lz++) {
                         for (int lx = 0; lx < 16; lx++) {
+                            int stateId = chunk.getBlockId(lx, ly, lz);
+                            // Preserve player-placed machines, redstone, builds, etc.
+                            if (!registry.isNaturalRockOrAir(stateId)) continue;
+
                             chunk.set(lx, ly, lz, fakeStateId);
                             obfuscatedCount++;
                             freecamObfuscatedCount++;
@@ -178,17 +179,20 @@ public class AntiXrayProcessor {
                         int worldX = (chunkX << 4) + lx;
                         int stateId = chunk.getBlockId(lx, ly, lz);
 
-                        // Anti-Freecam Planar Blockade at Deepslate level (Y <= 0):
+                        // Anti-Freecam Planar Blockade at Deepslate level (Y <= 0 in Overworld, Y <= 127 in Nether):
                         // Fills like a flat plane wall on sides and a flat floor at the bottom outside vertical distance
-                        if (antiFreecam && worldY <= freecamMaxY) {
+                        // ONLY masks natural subterranean rock/ores and cave air — NEVER player machines, redstone, or builds!
+                        if (isFreecamDimension && antiFreecam && worldY <= freecamMaxY) {
                             int bdx = Math.abs(worldX - playerX);
                             int bdz = Math.abs(worldZ - playerZ);
                             int bdy = playerY - worldY;
                             if (bdx > freecamDist || bdz > freecamDist || bdy > freecamVertDist) {
-                                chunk.set(lx, ly, lz, fakeBaseId);
-                                obfuscatedCount++;
-                                freecamObfuscatedCount++;
-                                continue;
+                                if (registry.isNaturalRockOrAir(stateId)) {
+                                    chunk.set(lx, ly, lz, fakeBaseId);
+                                    obfuscatedCount++;
+                                    freecamObfuscatedCount++;
+                                    continue;
+                                }
                             }
                         }
 
@@ -322,35 +326,10 @@ public class AntiXrayProcessor {
         int bz = pos.getZ();
 
         World world = player.getWorld();
+        if (!config.isWorldEnabled(world)) return;
+
         int worldType = (world.getEnvironment() == World.Environment.NETHER) ? 1 :
-                (world.getEnvironment() == World.Environment.THE_END ? 2 : 0);
-
-        int fakeDefaultId;
-        if (worldType == 1) {
-            fakeDefaultId = registry.getDefaultNetherrackId();
-        } else if (worldType == 2) {
-            fakeDefaultId = registry.getDefaultEndStoneId();
-        } else {
-            fakeDefaultId = (by <= config.getDeepslateTransitionY()) ? registry.getDefaultDeepslateId() : registry.getDefaultStoneId();
-        }
-
-        // Anti-Freecam Planar Blockade at Deepslate level (Y <= 0 in Overworld)
-        if (config.isAntiFreecamEnabled() && by <= config.getFreecamMaxY(worldType)) {
-            int px = player.getLocation().getBlockX();
-            int py = player.getLocation().getBlockY();
-            int pz = player.getLocation().getBlockZ();
-            int dx = Math.abs(bx - px);
-            int dz = Math.abs(bz - pz);
-            int dy = py - by;
-            int freecamDist = config.getAntiFreecamDistance();
-            int freecamVertDist = config.getAntiFreecamVerticalDistance();
-            if (dx > freecamDist || dz > freecamDist || dy > freecamVertDist) {
-                packet.setBlockID(fakeDefaultId);
-                blocksObfuscated.incrementAndGet();
-                freecamBlocksObfuscated.incrementAndGet();
-                return;
-            }
-        }
+                (world.getEnvironment() == World.Environment.THE_END || config.isEndWorld(world) ? 2 : 0);
 
         // Above Deepslate level (Y > 0, Stone & Surface): Preserve air!
         if (stateId == 0) return;
@@ -371,6 +350,15 @@ public class AntiXrayProcessor {
             return; // Exposed to air -> do not disguise
         }
 
+        int fakeDefaultId;
+        if (worldType == 1) {
+            fakeDefaultId = registry.getDefaultNetherrackId();
+        } else if (worldType == 2) {
+            fakeDefaultId = registry.getDefaultEndStoneId();
+        } else {
+            fakeDefaultId = (by <= config.getDeepslateTransitionY()) ? registry.getDefaultDeepslateId() : registry.getDefaultStoneId();
+        }
+
         if (config.getEngineMode() == 1) {
             packet.setBlockID(fakeDefaultId);
             blocksObfuscated.incrementAndGet();
@@ -388,15 +376,17 @@ public class AntiXrayProcessor {
         if (player == null) return;
         if (player.hasPermission(config.getBypassPermission())) return;
 
+        World world = player.getWorld();
+        if (!config.isWorldEnabled(world)) return;
+
         WrapperPlayServerMultiBlockChange.EncodedBlock[] blocks = packet.getBlocks();
         if (blocks == null || blocks.length == 0) return;
 
         Vector3i chunkPos = packet.getChunkPosition();
         if (chunkPos == null) return;
 
-        World world = player.getWorld();
         int worldType = (world.getEnvironment() == World.Environment.NETHER) ? 1 :
-                (world.getEnvironment() == World.Environment.THE_END ? 2 : 0);
+                (world.getEnvironment() == World.Environment.THE_END || config.isEndWorld(world) ? 2 : 0);
 
         int chunkX = chunkPos.getX();
         int sectionIndex = chunkPos.getY();
@@ -405,16 +395,12 @@ public class AntiXrayProcessor {
         int minHeight = world.getMinHeight();
         String worldName = world.getName();
 
-        int px = player.getLocation().getBlockX();
-        int py = player.getLocation().getBlockY();
-        int pz = player.getLocation().getBlockZ();
-        int freecamDist = config.getAntiFreecamDistance();
-        int freecamVertDist = config.getAntiFreecamVerticalDistance();
-        int freecamMaxY = config.getFreecamMaxY(worldType);
-        boolean antiFreecam = config.isAntiFreecamEnabled();
-
         for (WrapperPlayServerMultiBlockChange.EncodedBlock block : blocks) {
             int stateId = block.getBlockId();
+            if (stateId == 0) continue;
+
+            boolean isTarget = (config.getEngineMode() == 1) ? registry.isTargetOre(stateId) : registry.isReplaceable(stateId);
+            if (!isTarget) continue;
 
             int lx = block.getX();
             int ly = block.getY();
@@ -423,34 +409,6 @@ public class AntiXrayProcessor {
             int worldX = (chunkX << 4) + lx;
             int worldY = sectionBaseY + ly;
             int worldZ = (chunkZ << 4) + lz;
-
-            int fakeDefaultId;
-            if (worldType == 1) {
-                fakeDefaultId = registry.getDefaultNetherrackId();
-            } else if (worldType == 2) {
-                fakeDefaultId = registry.getDefaultEndStoneId();
-            } else {
-                fakeDefaultId = (worldY <= config.getDeepslateTransitionY()) ? registry.getDefaultDeepslateId() : registry.getDefaultStoneId();
-            }
-
-            // Anti-Freecam Planar Blockade at Deepslate level (Y <= 0 in Overworld)
-            if (antiFreecam && worldY <= freecamMaxY) {
-                int dx = Math.abs(worldX - px);
-                int dz = Math.abs(worldZ - pz);
-                int dy = py - worldY;
-                if (dx > freecamDist || dz > freecamDist || dy > freecamVertDist) {
-                    block.setBlockId(fakeDefaultId);
-                    blocksObfuscated.incrementAndGet();
-                    freecamBlocksObfuscated.incrementAndGet();
-                    continue;
-                }
-            }
-
-            // Above Deepslate level (Y > 0, Stone & Surface): Preserve air!
-            if (stateId == 0) continue;
-
-            boolean isTarget = (config.getEngineMode() == 1) ? registry.isTargetOre(stateId) : registry.isReplaceable(stateId);
-            if (!isTarget) continue;
 
             boolean occluded = cache.isWorldBlockOccluding(worldName, worldX, worldY - 1, worldZ, minHeight)
                     && cache.isWorldBlockOccluding(worldName, worldX, worldY + 1, worldZ, minHeight)
@@ -461,6 +419,15 @@ public class AntiXrayProcessor {
 
             if (!occluded) {
                 continue; // Exposed to air -> do not disguise
+            }
+
+            int fakeDefaultId;
+            if (worldType == 1) {
+                fakeDefaultId = registry.getDefaultNetherrackId();
+            } else if (worldType == 2) {
+                fakeDefaultId = registry.getDefaultEndStoneId();
+            } else {
+                fakeDefaultId = (worldY <= config.getDeepslateTransitionY()) ? registry.getDefaultDeepslateId() : registry.getDefaultStoneId();
             }
 
             if (config.getEngineMode() == 1) {

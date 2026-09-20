@@ -37,19 +37,15 @@ cave-reveal-distance: 28
 # restored in real-time with zero TPS impact.
 anti-freecam:
   enabled: true
-  # Horizontal rendering / visibility radius (in blocks) around player's true server-side location (default: 50 blocks / ~3 chunks)
-  distance: 35
-  # Vertical downward distance (in blocks) below which subterranean deepslate caves are blocked with a Fake Deepslate floor (default: 20 blocks)
-  vertical-distance: 50
+  # Horizontal rendering / visibility radius (in blocks) around player's true server-side location (default: 55 blocks / ~3.5 chunks)
+  distance: 55
+  # Vertical downward distance (in blocks) below which subterranean deepslate caves are blocked with a Fake Deepslate floor (default: 80 blocks)
+  vertical-distance: 80
   # Maximum Y level below which anti-freecam deepslate blockade applies per dimension
   # Overworld: Y <= 0 (Deepslate level only, never above deepslate/surface)
   overworld-max-y: 0
   # Nether: Y <= 127 (below nether bedrock ceiling)
   nether-max-y: 127
-  # End: Y <= 255
-  end-max-y: 255
-
-
 
 # Debug logging in console
 debug: false
@@ -59,7 +55,7 @@ permissions:
   bypass: "falcon.antixray.bypass"
   admin: "falcon.antixray.admin"
 
-# Height limits per world type
+# Height limits and dimension controls
 height-limits:
   overworld:
     min-y: -64
@@ -69,6 +65,8 @@ height-limits:
     min-y: 0
     max-y: 127
   end:
+    # Completely disabled for The End dimension (natural void, floating islands, and End cities 100% preserved)
+    enabled: false
     min-y: 0
     max-y: 255
 
