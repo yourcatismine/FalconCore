@@ -102,9 +102,9 @@ public class AntiCheatManager {
         this.configFile = loadConfigFile("survival/anticheat/config.yml", "anticheat/config.yml");
         this.config = YamlConfiguration.loadConfiguration(configFile);
 
-        this.messagesFile = loadConfigFile("survival/messages/anticheat/messages.yml", "messages/anticheat/messages.yml");
+        this.messagesFile = loadConfigFile("messages/anticheat/messages.yml", "survival/messages/anticheat/messages.yml");
         if (!messagesFile.exists()) {
-            this.messagesFile = loadConfigFile("survival/messages/anticheat/fly/messages.yml", "messages/anticheat/fly/messages.yml");
+            this.messagesFile = loadConfigFile("messages/anticheat/fly/messages.yml", "survival/messages/anticheat/fly/messages.yml");
         }
         this.messages = YamlConfiguration.loadConfiguration(messagesFile);
 
@@ -138,8 +138,8 @@ public class AntiCheatManager {
             FileConfiguration checkConfig = YamlConfiguration.loadConfiguration(checkFile);
             check.reloadConfig(checkConfig);
 
-            String checkMsgPath = "survival/messages/anticheat/" + check.getId() + "/messages.yml";
-            String fallbackMsgPath = "messages/anticheat/" + check.getId() + "/messages.yml";
+            String checkMsgPath = "messages/anticheat/" + check.getId() + "/messages.yml";
+            String fallbackMsgPath = "survival/messages/anticheat/" + check.getId() + "/messages.yml";
             File msgFile = loadConfigFile(checkMsgPath, fallbackMsgPath);
             if (msgFile.exists()) {
                 checkMessagesMap.put(check.getId(), YamlConfiguration.loadConfiguration(msgFile));

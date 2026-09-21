@@ -945,6 +945,10 @@ public class Falcon extends JavaPlugin {
             this.antiXrayManager.shutdown();
         }
 
+        if (this.duelArenaManager != null) {
+            this.duelArenaManager.onDisable();
+        }
+
         if (this.schedulerAdapter != null) {
             this.schedulerAdapter.shutdown();
         }

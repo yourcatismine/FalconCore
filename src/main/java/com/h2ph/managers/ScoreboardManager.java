@@ -155,11 +155,16 @@ public class ScoreboardManager implements Listener {
 
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
-        if (plugin.getFalconBotManager() != null && (plugin.getFalconBotManager().isBot(event.getPlayer().getUniqueId()) || plugin.getFalconBotManager().isBot(event.getPlayer().getName()))) {
+        Player player = event.getPlayer();
+        if (plugin.getFalconBotManager() != null && (plugin.getFalconBotManager().isBot(player.getUniqueId()) || plugin.getFalconBotManager().isBot(player.getName()))) {
             return;
         }
-        initScoreboard(event.getPlayer());
-        startTask(event.getPlayer());
+        plugin.getSchedulerAdapter().runEntityTaskLater(player, () -> {
+            if (player.isOnline()) {
+                initScoreboard(player);
+                startTask(player);
+            }
+        }, 3L);
     }
 
     @EventHandler

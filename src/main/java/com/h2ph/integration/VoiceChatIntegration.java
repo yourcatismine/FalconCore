@@ -35,18 +35,28 @@ public class VoiceChatIntegration implements VoicechatPlugin {
 
     @Override
     public void registerEvents(EventRegistration registration) {
-        registration.registerEvent(MicrophonePacketEvent.class, this::onMicrophonePacket);
+        if (!plugin.isEnabled()) {
+            return;
+        }
+        try {
+            registration.registerEvent(MicrophonePacketEvent.class, this::onMicrophonePacket);
+        } catch (Throwable t) {
+            plugin.getLogger().warning("[VoiceChat] Failed to register voicechat event: " + t.getMessage());
+        }
     }
 
     private final Map<UUID, Long> lastActionBarTime = new ConcurrentHashMap<>();
 
     private void onMicrophonePacket(MicrophonePacketEvent event) {
-        if (event.getSenderConnection() == null) {
+        if (!plugin.isEnabled() || event == null || event.getSenderConnection() == null) {
             return;
         }
 
         try {
             UUID playerUuid = event.getSenderConnection().getPlayer().getUuid();
+            if (plugin.getPlayerDataManager() == null) {
+                return;
+            }
             PlayerData data = plugin.getPlayerDataManager().get(playerUuid);
             
             if (data != null && data.isVoiceMuted()) {
@@ -62,7 +72,7 @@ public class VoiceChatIntegration implements VoicechatPlugin {
                     }
                 }
             }
-        } catch (Exception e) {
+        } catch (Throwable ignored) {
             // Ignore errors here to not spam console
         }
     }

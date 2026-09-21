@@ -2,6 +2,7 @@ package com.h2ph.managers;
 
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.protocol.player.User;
+import com.github.retrooper.packetevents.protocol.score.ScoreFormat;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerDisplayScoreboard;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerScoreboardObjective;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerTeams;
@@ -277,37 +278,23 @@ public class NametagManager implements Listener {
         viewerCreatedTeams.remove(uuid);
         viewersWithBelowName.remove(uuid);
 
-        if (belowNameEnabled) {
-            setupBelowNameFor(player);
-        }
+        plugin.getSchedulerAdapter().runEntityTaskLater(player, () -> {
+            if (!player.isOnline()) return;
 
-        sendExistingNametagsTo(player);
-        if (enabled) {
-            processNametagFor(player, false);
-        }
-        if (belowNameEnabled) {
-            processBelowNameFor(player, true);
-        }
-
-        // Delayed passes to ensure LuckPerms and client packet pipeline are fully synchronized
-        plugin.getSchedulerAdapter().runTaskLater(() -> {
-            if (player.isOnline()) {
-                weightCache.remove(uuid);
-                weightCacheTime.remove(uuid);
-                sendExistingNametagsTo(player);
-                if (enabled) {
-                    processNametagFor(player, false);
-                }
-                if (belowNameEnabled) {
-                    processBelowNameFor(player, false);
-                }
-                if (plugin.getTabListManager() != null) {
-                    plugin.getTabListManager().updateTabList(player);
-                }
+            if (belowNameEnabled) {
+                setupBelowNameFor(player);
             }
-        }, 5L);
 
-        plugin.getSchedulerAdapter().runTaskLater(() -> {
+            sendExistingNametagsTo(player);
+            if (enabled) {
+                processNametagFor(player, false);
+            }
+            if (belowNameEnabled) {
+                processBelowNameFor(player, true);
+            }
+        }, 4L);
+
+        plugin.getSchedulerAdapter().runEntityTaskLater(player, () -> {
             if (player.isOnline()) {
                 weightCache.remove(uuid);
                 weightCacheTime.remove(uuid);
@@ -317,9 +304,6 @@ public class NametagManager implements Listener {
                 }
                 if (belowNameEnabled) {
                     processBelowNameFor(player, false);
-                }
-                if (plugin.getTabListManager() != null) {
-                    plugin.getTabListManager().updateTabList(player);
                 }
             }
         }, 20L);
@@ -742,7 +726,7 @@ public class NametagManager implements Listener {
                     WrapperPlayServerScoreboardObjective.ObjectiveMode.CREATE,
                     objDisplayName,
                     WrapperPlayServerScoreboardObjective.RenderType.INTEGER,
-                    null
+                    ScoreFormat.blankScore()
             );
             user.sendPacket(objPacket);
 
@@ -765,7 +749,7 @@ public class NametagManager implements Listener {
                     WrapperPlayServerScoreboardObjective.ObjectiveMode.REMOVE,
                     Component.empty(),
                     WrapperPlayServerScoreboardObjective.RenderType.INTEGER,
-                    null
+                    ScoreFormat.blankScore()
             );
             user.sendPacket(objPacket);
         }

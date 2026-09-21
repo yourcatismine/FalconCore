@@ -50,6 +50,12 @@ public class AntiXrayCommand implements CommandExecutor, TabCompleter {
                 return true;
             }
 
+            case "reload" -> {
+                manager.reload();
+                sender.sendMessage(color("&8[&bFalcon AntiXray&8] &aConfiguration & occlusion cache reloaded successfully."));
+                return true;
+            }
+
             case "stats" -> {
                 AntiXrayProcessor processor = manager.getProcessor();
                 ChunkOcclusionCache cache = manager.getCache();
@@ -59,6 +65,7 @@ public class AntiXrayCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(color("&8&m--------------------------------------------------"));
                 sender.sendMessage(color(" &8• &7Status: " + (config.isEnabled() ? "&aEnabled (Engine Mode " + config.getEngineMode() + ")" : "&cDisabled")));
                 sender.sendMessage(color(" &8• &7Anti-Freecam: " + (config.isAntiFreecamEnabled() ? "&aEnabled &7(" + config.getAntiFreecamDistance() + " blocks radius, Fill Caves: " + (config.isAntiFreecamFillCaves() ? "&aYes" : "&cNo") + "&7)" : "&cDisabled")));
+                sender.sendMessage(color(" &8• &7Exempt / Disabled Worlds: &e" + config.getDisabledWorlds().size() + " &7(Whitelist: " + (config.getEnabledWorlds().contains("*") ? "&aAll Non-Exempt" : "&b" + config.getEnabledWorlds().size() + " worlds") + "&7)"));
                 sender.sendMessage(color(" &8• &7Chunks Processed: &e" + String.format("%,d", processor.getChunksProcessed())));
                 sender.sendMessage(color(" &8• &7Total Blocks Obfuscated: &b" + String.format("%,d", processor.getBlocksObfuscated())));
                 sender.sendMessage(color(" &8• &7Freecam Blocks Blockaded: &d" + String.format("%,d", processor.getFreecamBlocksObfuscated())));
@@ -94,6 +101,7 @@ public class AntiXrayCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(color("&8&m--------------------------------------------------"));
         sender.sendMessage(color(" &8• &b/" + label + " toggle &8- &7Enable or disable Anti-Xray"));
         sender.sendMessage(color(" &8• &b/" + label + " togglefreecam &8- &7Toggle distance-based Anti-Freecam"));
+        sender.sendMessage(color(" &8• &b/" + label + " reload &8- &7Reload config and clear occlusion cache"));
         sender.sendMessage(color(" &8• &b/" + label + " stats &8- &7View live performance and obfuscation metrics"));
         sender.sendMessage(color(" &8• &b/" + label + " clearcache &8- &7Flush memory chunk occlusion masks"));
         sender.sendMessage(color(" &8• &b/" + label + " resetstats &8- &7Reset chunk & block counters"));
@@ -110,7 +118,7 @@ public class AntiXrayCommand implements CommandExecutor, TabCompleter {
             return List.of();
         }
         if (args.length == 1) {
-            List<String> subs = Arrays.asList("toggle", "togglefreecam", "stats", "clearcache", "resetstats");
+            List<String> subs = Arrays.asList("toggle", "togglefreecam", "reload", "stats", "clearcache", "resetstats");
             List<String> res = new ArrayList<>();
             for (String s : subs) {
                 if (s.startsWith(args[0].toLowerCase())) {

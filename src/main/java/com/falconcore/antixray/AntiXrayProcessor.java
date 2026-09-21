@@ -22,6 +22,25 @@ public class AntiXrayProcessor {
     private final AtomicLong freecamBlocksObfuscated = new AtomicLong(0);
     private final AtomicLong totalProcessingNanos = new AtomicLong(0);
 
+    private static java.lang.reflect.Field TILE_ENTITIES_FIELD;
+
+    static {
+        try {
+            TILE_ENTITIES_FIELD = Column.class.getDeclaredField("tileEntities");
+            TILE_ENTITIES_FIELD.setAccessible(true);
+        } catch (Throwable ignored) {
+            try {
+                for (java.lang.reflect.Field f : Column.class.getDeclaredFields()) {
+                    if (f.getType().isArray() && f.getType().getComponentType().getSimpleName().contains("TileEntity")) {
+                        f.setAccessible(true);
+                        TILE_ENTITIES_FIELD = f;
+                        break;
+                    }
+                }
+            } catch (Throwable ignored2) {}
+        }
+    }
+
     public AntiXrayProcessor(AntiXrayConfig config, OcclusionRegistry registry, ChunkOcclusionCache cache) {
         this.config = config;
         this.registry = registry;
@@ -45,21 +64,10 @@ public class AntiXrayProcessor {
         if (!config.isWorldEnabled(world)) return;
 
         String worldName = world.getName();
-        World.Environment env = world.getEnvironment();
-
-        int worldType = 0; // 0 = Overworld, 1 = Nether, 2 = End
-        int minY = config.getOverworldMinY();
-        int maxY = config.getOverworldMaxY();
-
-        if (env == World.Environment.NETHER) {
-            worldType = 1;
-            minY = config.getNetherMinY();
-            maxY = config.getNetherMaxY();
-        } else if (env == World.Environment.THE_END || config.isEndWorld(world)) {
-            worldType = 2;
-            minY = config.getEndMinY();
-            maxY = config.getEndMaxY();
-        }
+        int worldType = config.getWorldType(world);
+        int minY = (worldType == 1) ? config.getNetherMinY() : (worldType == 2 ? config.getEndMinY() : config.getOverworldMinY());
+        int maxY = (worldType == 1) ? config.getNetherMaxY() : (worldType == 2 ? config.getEndMaxY() : config.getOverworldMaxY());
+        int currentEngineMode = config.getEngineMode(world);
 
         int chunkX = column.getX();
         int chunkZ = column.getZ();
@@ -103,13 +111,12 @@ public class AntiXrayProcessor {
         boolean antiFreecam = config.isAntiFreecamEnabled();
         int freecamDist = config.getAntiFreecamDistance();
         int freecamVertDist = config.getAntiFreecamVerticalDistance();
-        int freecamDistSq = freecamDist * freecamDist;
         int freecamMaxY = config.getFreecamMaxY(worldType);
+        boolean isFreecamDimension = config.isAntiFreecamEnabled(world);
 
-        int chunkMinX = chunkX << 4;
-        int chunkMaxX = chunkMinX + 15;
-        int chunkMinZ = chunkZ << 4;
-        int chunkMaxZ = chunkMinZ + 15;
+        int playerChunkX = playerX >> 4;
+        int playerChunkZ = playerZ >> 4;
+        int chunkRadius = (freecamDist >> 4);
 
         java.util.List<int[]> exposedOresList = new java.util.ArrayList<>();
 
@@ -125,10 +132,6 @@ public class AntiXrayProcessor {
 
             // Planar chunk-based distance check for Anti-Freecam in Deepslate layer (Y <= 0 in Overworld, Y <= 127 in Nether)
             // NEVER active in The End dimension
-            int playerChunkX = playerX >> 4;
-            int playerChunkZ = playerZ >> 4;
-            int chunkRadius = (freecamDist >> 4);
-            boolean isFreecamDimension = (worldType == 0 || worldType == 1);
             boolean sectionOutsideFreecam = isFreecamDimension && antiFreecam && sectionMaxY <= freecamMaxY
                     && (Math.abs(chunkX - playerChunkX) > chunkRadius
                     || Math.abs(chunkZ - playerChunkZ) > chunkRadius
@@ -144,10 +147,6 @@ public class AntiXrayProcessor {
 
                     for (int lz = 0; lz < 16; lz++) {
                         for (int lx = 0; lx < 16; lx++) {
-                            int stateId = chunk.getBlockId(lx, ly, lz);
-                            // Preserve player-placed machines, redstone, builds, etc.
-                            if (!registry.isNaturalRockOrAir(stateId)) continue;
-
                             chunk.set(lx, ly, lz, fakeStateId);
                             obfuscatedCount++;
                             freecamObfuscatedCount++;
@@ -181,18 +180,16 @@ public class AntiXrayProcessor {
 
                         // Anti-Freecam Planar Blockade at Deepslate level (Y <= 0 in Overworld, Y <= 127 in Nether):
                         // Fills like a flat plane wall on sides and a flat floor at the bottom outside vertical distance
-                        // ONLY masks natural subterranean rock/ores and cave air — NEVER player machines, redstone, or builds!
+                        // Completely conceals all blocks, chests, spawners, containers, and ores from Freecam / Tracers!
                         if (isFreecamDimension && antiFreecam && worldY <= freecamMaxY) {
                             int bdx = Math.abs(worldX - playerX);
                             int bdz = Math.abs(worldZ - playerZ);
                             int bdy = playerY - worldY;
                             if (bdx > freecamDist || bdz > freecamDist || bdy > freecamVertDist) {
-                                if (registry.isNaturalRockOrAir(stateId)) {
-                                    chunk.set(lx, ly, lz, fakeBaseId);
-                                    obfuscatedCount++;
-                                    freecamObfuscatedCount++;
-                                    continue;
-                                }
+                                chunk.set(lx, ly, lz, fakeBaseId);
+                                obfuscatedCount++;
+                                freecamObfuscatedCount++;
+                                continue;
                             }
                         }
 
@@ -200,7 +197,10 @@ public class AntiXrayProcessor {
                         // Always preserve air and surface terrain!
                         if (stateId == 0) continue;
 
-                        boolean isTarget = (config.getEngineMode() == 1) ? registry.isTargetOre(stateId) : registry.isReplaceable(stateId);
+                        boolean antiXray = config.isAntiXrayEnabled(world);
+                        if (!antiXray) continue;
+
+                        boolean isTarget = (currentEngineMode == 1) ? registry.isTargetOre(stateId) : registry.isReplaceable(stateId);
                         if (!isTarget) continue;
 
                         // Check 6 Neighbor Faces for Occlusion:
@@ -267,7 +267,7 @@ public class AntiXrayProcessor {
                         boolean isFullyOccluded = downSolid && upSolid && westSolid && eastSolid && northSolid && southSolid;
 
                         // Engine Mode 1:
-                        if (config.getEngineMode() == 1) {
+                        if (currentEngineMode == 1) {
                             if (!isFullyOccluded) {
                                 exposedOresList.add(new int[]{worldX, worldY, worldZ});
 
@@ -301,6 +301,43 @@ public class AntiXrayProcessor {
             }
         }
 
+        // Step 3: Strip Tile Entities (Chests, Spawners, Signs, Shulkers, etc.) outside Freecam boundary
+        if (TILE_ENTITIES_FIELD != null && isFreecamDimension && antiFreecam) {
+            try {
+                com.github.retrooper.packetevents.protocol.world.chunk.TileEntity[] te = column.getTileEntities();
+                if (te != null && te.length > 0) {
+                    java.util.List<com.github.retrooper.packetevents.protocol.world.chunk.TileEntity> kept = null;
+                    for (int i = 0; i < te.length; i++) {
+                        com.github.retrooper.packetevents.protocol.world.chunk.TileEntity t = te[i];
+                        if (t == null) continue;
+                        int worldY = t.getY();
+                        if (worldY <= freecamMaxY) {
+                            int tx = (chunkX << 4) + (t.getX() & 15);
+                            int tz = (chunkZ << 4) + (t.getZ() & 15);
+                            int bdx = Math.abs(tx - playerX);
+                            int bdz = Math.abs(tz - playerZ);
+                            int bdy = playerY - worldY;
+                            if (bdx > freecamDist || bdz > freecamDist || bdy > freecamVertDist) {
+                                if (kept == null) {
+                                    kept = new java.util.ArrayList<>(te.length);
+                                    for (int j = 0; j < i; j++) {
+                                        if (te[j] != null) kept.add(te[j]);
+                                    }
+                                }
+                                continue;
+                            }
+                        }
+                        if (kept != null) {
+                            kept.add(t);
+                        }
+                    }
+                    if (kept != null) {
+                        TILE_ENTITIES_FIELD.set(column, kept.toArray(new com.github.retrooper.packetevents.protocol.world.chunk.TileEntity[0]));
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+
         if (!exposedOresList.isEmpty()) {
             cache.storeExposedOres(worldName, chunkX, chunkZ, exposedOresList);
         }
@@ -328,13 +365,38 @@ public class AntiXrayProcessor {
         World world = player.getWorld();
         if (!config.isWorldEnabled(world)) return;
 
-        int worldType = (world.getEnvironment() == World.Environment.NETHER) ? 1 :
-                (world.getEnvironment() == World.Environment.THE_END || config.isEndWorld(world) ? 2 : 0);
+        int worldType = config.getWorldType(world);
+        int currentEngineMode = config.getEngineMode(world);
+
+        int fakeDefaultId;
+        if (worldType == 1) {
+            fakeDefaultId = registry.getDefaultNetherrackId();
+        } else if (worldType == 2) {
+            fakeDefaultId = registry.getDefaultEndStoneId();
+        } else {
+            fakeDefaultId = (by <= config.getDeepslateTransitionY()) ? registry.getDefaultDeepslateId() : registry.getDefaultStoneId();
+        }
+
+        // Anti-Freecam boundary check for single block changes
+        if (config.isAntiFreecamEnabled(world) && by <= config.getFreecamMaxY(worldType)) {
+            int px = player.getLocation().getBlockX();
+            int py = player.getLocation().getBlockY();
+            int pz = player.getLocation().getBlockZ();
+            int bdx = Math.abs(bx - px);
+            int bdz = Math.abs(bz - pz);
+            int bdy = py - by;
+            if (bdx > config.getAntiFreecamDistance() || bdz > config.getAntiFreecamDistance() || bdy > config.getAntiFreecamVerticalDistance()) {
+                packet.setBlockID(fakeDefaultId);
+                blocksObfuscated.incrementAndGet();
+                return;
+            }
+        }
 
         // Above Deepslate level (Y > 0, Stone & Surface): Preserve air!
         if (stateId == 0) return;
+        if (!config.isAntiXrayEnabled(world)) return;
 
-        boolean isTarget = (config.getEngineMode() == 1) ? registry.isTargetOre(stateId) : registry.isReplaceable(stateId);
+        boolean isTarget = (currentEngineMode == 1) ? registry.isTargetOre(stateId) : registry.isReplaceable(stateId);
         if (!isTarget) return;
 
         String worldName = world.getName();
@@ -350,16 +412,7 @@ public class AntiXrayProcessor {
             return; // Exposed to air -> do not disguise
         }
 
-        int fakeDefaultId;
-        if (worldType == 1) {
-            fakeDefaultId = registry.getDefaultNetherrackId();
-        } else if (worldType == 2) {
-            fakeDefaultId = registry.getDefaultEndStoneId();
-        } else {
-            fakeDefaultId = (by <= config.getDeepslateTransitionY()) ? registry.getDefaultDeepslateId() : registry.getDefaultStoneId();
-        }
-
-        if (config.getEngineMode() == 1) {
+        if (currentEngineMode == 1) {
             packet.setBlockID(fakeDefaultId);
             blocksObfuscated.incrementAndGet();
             return;
@@ -385,8 +438,8 @@ public class AntiXrayProcessor {
         Vector3i chunkPos = packet.getChunkPosition();
         if (chunkPos == null) return;
 
-        int worldType = (world.getEnvironment() == World.Environment.NETHER) ? 1 :
-                (world.getEnvironment() == World.Environment.THE_END || config.isEndWorld(world) ? 2 : 0);
+        int worldType = config.getWorldType(world);
+        int currentEngineMode = config.getEngineMode(world);
 
         int chunkX = chunkPos.getX();
         int sectionIndex = chunkPos.getY();
@@ -395,13 +448,17 @@ public class AntiXrayProcessor {
         int minHeight = world.getMinHeight();
         String worldName = world.getName();
 
+        int px = player.getLocation().getBlockX();
+        int py = player.getLocation().getBlockY();
+        int pz = player.getLocation().getBlockZ();
+        boolean antiFreecam = config.isAntiFreecamEnabled(world);
+        boolean antiXray = config.isAntiXrayEnabled(world);
+        int freecamDist = config.getAntiFreecamDistance();
+        int freecamVertDist = config.getAntiFreecamVerticalDistance();
+        int freecamMaxY = config.getFreecamMaxY(worldType);
+
         for (WrapperPlayServerMultiBlockChange.EncodedBlock block : blocks) {
             int stateId = block.getBlockId();
-            if (stateId == 0) continue;
-
-            boolean isTarget = (config.getEngineMode() == 1) ? registry.isTargetOre(stateId) : registry.isReplaceable(stateId);
-            if (!isTarget) continue;
-
             int lx = block.getX();
             int ly = block.getY();
             int lz = block.getZ();
@@ -409,6 +466,32 @@ public class AntiXrayProcessor {
             int worldX = (chunkX << 4) + lx;
             int worldY = sectionBaseY + ly;
             int worldZ = (chunkZ << 4) + lz;
+
+            int fakeDefaultId;
+            if (worldType == 1) {
+                fakeDefaultId = registry.getDefaultNetherrackId();
+            } else if (worldType == 2) {
+                fakeDefaultId = registry.getDefaultEndStoneId();
+            } else {
+                fakeDefaultId = (worldY <= config.getDeepslateTransitionY()) ? registry.getDefaultDeepslateId() : registry.getDefaultStoneId();
+            }
+
+            // Anti-Freecam boundary check
+            if (antiFreecam && worldY <= freecamMaxY) {
+                int bdx = Math.abs(worldX - px);
+                int bdz = Math.abs(worldZ - pz);
+                int bdy = py - worldY;
+                if (bdx > freecamDist || bdz > freecamDist || bdy > freecamVertDist) {
+                    block.setBlockId(fakeDefaultId);
+                    blocksObfuscated.incrementAndGet();
+                    continue;
+                }
+            }
+
+            if (stateId == 0 || !antiXray) continue;
+
+            boolean isTarget = (currentEngineMode == 1) ? registry.isTargetOre(stateId) : registry.isReplaceable(stateId);
+            if (!isTarget) continue;
 
             boolean occluded = cache.isWorldBlockOccluding(worldName, worldX, worldY - 1, worldZ, minHeight)
                     && cache.isWorldBlockOccluding(worldName, worldX, worldY + 1, worldZ, minHeight)
@@ -421,16 +504,7 @@ public class AntiXrayProcessor {
                 continue; // Exposed to air -> do not disguise
             }
 
-            int fakeDefaultId;
-            if (worldType == 1) {
-                fakeDefaultId = registry.getDefaultNetherrackId();
-            } else if (worldType == 2) {
-                fakeDefaultId = registry.getDefaultEndStoneId();
-            } else {
-                fakeDefaultId = (worldY <= config.getDeepslateTransitionY()) ? registry.getDefaultDeepslateId() : registry.getDefaultStoneId();
-            }
-
-            if (config.getEngineMode() == 1) {
+            if (currentEngineMode == 1) {
                 block.setBlockId(fakeDefaultId);
                 blocksObfuscated.incrementAndGet();
                 continue;

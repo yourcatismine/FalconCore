@@ -1,0 +1,74 @@
+# ============================================================
+# Duels Messages Configuration
+# Placeholders:
+#   {player}   - Opponent / Target player name
+#   {sender}   - Request sender player name
+#   {time}     - Formatted time / wait time string
+#   {minutes}  - Minutes remaining
+#   {seconds}  - Seconds remaining
+#   {unit}     - "minute" or "minutes"
+#   {winrate}  - Opponent's win rate percentage
+# ============================================================
+
+messages:
+  prefix: "&8[&b&lDUELS&8] "
+  
+  # Matchmaking Queue
+  queue-announcement: "&8[&b&lDUELS&8] &e{player} &7is looking for a duel! "
+  queue-button-text: "&a&l[CLICK TO DUEL]"
+  queue-button-hover: "&aClick to join the duel queue against &e{player}"
+  queue-searching: "&aYou are now searching for a match..."
+  queue-searching-actionbar: "&7Searching for a Casual Duel... Estimated Time:&b {time}"
+  queue-timeout-actionbar: "&cUnable to find players to match"
+  queue-already-in: "&eYou are already in the duel queue! (Type /duel stop to leave)"
+  queue-leave: "&7You left the duel queue."
+  queue-not-in: "&cYou are not in the duel queue."
+  queue-cannot-join-in-duel: "&cYou cannot join the queue while in a duel!"
+  
+  # Direct Requests (/duel <player>)
+  request-sent: "&fYou requested &a{player}&f to play on a duel match."
+  request-received: "&a{sender}&f has requested you to fight on a duel match."
+  request-click-prefix: "&fType /duel accept or "
+  request-click-button: "&a[Click me]"
+  request-click-hover: "&aClick to accept duel from &e{sender}"
+  request-click-suffix: "&f to accept the challenge."
+  request-accepted-target: "&aYou accepted the duel!"
+  request-accepted-sender: "&a{player}&f accepted your duel request!"
+  request-declined-target: "&cYou declined the duel request."
+  request-declined-sender: "&a{player}&f declined your duel match."
+  request-cancelled: "&aPending duel request cancelled."
+  request-no-pending: "&cYou do not have any pending duel requests."
+  request-cooldown: "&fPlease wait {time} seconds before requesting again."
+  request-disabled: "&cUser disabled duel requests."
+  request-ignored: "&7You are ignored by this player."
+  request-self: "&cYou cannot duel yourself."
+  request-offline: "&cThis user is not online."
+  request-not-found: "&cThat user does not exist."
+  request-target-in-duel: "&cThis player is currently on a duel."
+  request-searching-regions: "&7Searching for regions..."
+  request-no-regions: "&cUnable to find available regions to play."
+  
+  # In-Match Status & Looting
+  not-in-duel: "&cYou are not in a duel."
+  forfeit: "&7You forfeited the match."
+  left-arena: "&7You left the arena."
+  cannot-use-command: "&cYou cannot use this command while on duels! Type &a/duel leave&c to left the match."
+  match-time-remaining: "&7There are &a{minutes} {unit}&f left before the match to end"
+  draw-message: "&7Time limit reached! It's a draw."
+  looting-actionbar: "&7You have &d{minutes}m {seconds}s&7 to collect the loot"
+  spectator-countdown-actionbar: "&7Teleporting you back in &d{seconds} seconds"
+  opponent-info-actionbar: "&7Your opponent &a{player}&7 has a &d{winrate}&7 win rate. Good luck."
+
+titles:
+  elevator-main: "&4ᴄᴀsᴜᴀʟ ᴅᴜᴇʟ"
+  elevator-sub: "&fFight players and steal their loot."
+  countdown-sub: "&7Prepare for battle!"
+  start-main: "&a&lSTART!"
+  start-sub: "&fFight your opponent!"
+  win-main: "&a&lʏᴏᴜ ᴡᴏɴ"
+  win-forfeit-main: "&4&lᴏᴘᴘᴏɴᴇɴᴛ ʟᴇғᴛ"
+  win-sub: "&fGet your loot before the time runs out"
+  lose-main: "&4&lʏᴏᴜ ʟᴏsᴇ"
+  lose-sub: "&fBetter luck next time"
+  draw-main: "&7&lᴅʀᴀᴡ"
+  draw-sub: "&fNo one lost"

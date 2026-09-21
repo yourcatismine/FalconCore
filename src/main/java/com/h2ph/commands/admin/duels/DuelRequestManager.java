@@ -39,12 +39,13 @@ public class DuelRequestManager {
 
 
     public void acceptRequest(Player target, String senderName) {
+        DuelMessageManager mm = arenaManager.getMessageManager();
         UUID targetId = target.getUniqueId();
 
         UUID foundSender = findRequest(targetId, senderName);
 
         if (foundSender == null) {
-            String msg = ChatColor.RED + "You do not have a pending request from that player.";
+            String msg = mm.getMessage("request-no-pending", "&cYou do not have any pending duel requests.");
             target.sendMessage(msg);
             sendError(target, msg);
             return;
@@ -52,14 +53,14 @@ public class DuelRequestManager {
 
         Player sender = Bukkit.getPlayer(foundSender);
         if (sender == null) {
-            target.sendMessage(ChatColor.RED + "That player is no longer online.");
+            target.sendMessage(mm.getMessage("request-offline", "&cThat player is no longer online."));
             return;
         }
 
         int duration = requestDurations.getOrDefault(foundSender, 5);
         String biome = requestBiomes.getOrDefault(foundSender, "Random");
 
-        String searchingMsg = ChatColor.translateAlternateColorCodes('&', "&7Searching for regions...");
+        String searchingMsg = mm.getMessage("request-searching-regions", "&7Searching for regions...");
         sender.sendMessage(searchingMsg);
         target.sendMessage(searchingMsg);
 
@@ -105,10 +106,12 @@ public class DuelRequestManager {
                 requestDurations.remove(senderUUID);
                 requestBiomes.remove(senderUUID);
 
-                target.sendMessage(ChatColor.GREEN + "You accepted the duel!");
+                target.sendMessage(mm.getMessage("request-accepted-target", "&aYou accepted the duel!"));
                 playSound(target, Sound.ENTITY_PLAYER_LEVELUP);
 
-                sender.sendMessage(ChatColor.GREEN + target.getName() + " accepted your duel request!");
+                sender.sendMessage(mm.getMessage("request-accepted-sender",
+                        "&a{player}&f accepted your duel request!",
+                        "{player}", target.getName()));
                 playSound(sender, Sound.ENTITY_PLAYER_LEVELUP);
                 return;
             }
@@ -121,8 +124,7 @@ public class DuelRequestManager {
                 requestDurations.remove(senderUUID);
                 requestBiomes.remove(senderUUID);
 
-                String failMsg = ChatColor.translateAlternateColorCodes('&',
-                        "&cUnable to find available regions to play.");
+                String failMsg = mm.getMessage("request-no-regions", "&cUnable to find available regions to play.");
                 sender.sendMessage(failMsg);
                 target.sendMessage(failMsg);
 
@@ -152,18 +154,19 @@ public class DuelRequestManager {
     }
 
     public void sendRequest(Player sender, Player target, int duration, String biome) {
+        DuelMessageManager mm = arenaManager.getMessageManager();
         UUID senderId = sender.getUniqueId();
         UUID targetId = target.getUniqueId();
 
         if (senderId.equals(targetId)) {
-            String msg = ChatColor.RED + "You cannot duel yourself.";
+            String msg = mm.getMessage("request-self", "&cYou cannot duel yourself.");
             sender.sendMessage(msg);
             sendError(sender, msg);
             return;
         }
 
-        if (arenaManager.isInDuel(target) || arenaManager.isLooting(target)) {
-            String msg = ChatColor.translateAlternateColorCodes('&', "&cThis player is currently on a duel.");
+        if (arenaManager.isInDuel(target) || arenaManager.isPreDuel(target) || arenaManager.isLooting(target)) {
+            String msg = mm.getMessage("request-target-in-duel", "&cThis player is currently on a duel.");
             sender.sendMessage(msg);
             sender.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(msg));
             try {
@@ -180,8 +183,9 @@ public class DuelRequestManager {
                 UUID existingTarget = pendingRequests.get(senderId);
                 if (existingTarget != null && existingTarget.equals(targetId)) {
                     long wait = requestCooldownSeconds - elapsed;
-                    String msg = ChatColor.translateAlternateColorCodes('&',
-                            "&fPlease wait " + wait + " seconds before requesting again.");
+                    String msg = mm.getMessage("request-cooldown",
+                            "&fPlease wait {time} seconds before requesting again.",
+                            "{time}", String.valueOf(wait));
                     sender.sendMessage(msg);
                     sendError(sender, msg);
                     return;
@@ -196,20 +200,26 @@ public class DuelRequestManager {
 
         cooldowns.put(senderId, System.currentTimeMillis());
 
-        sender.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                "&fYou requested &a" + target.getName() + "&f to play on a duel match."));
+        sender.sendMessage(mm.getMessage("request-sent",
+                "&fYou requested &a{player}&f to play on a duel match.",
+                "{player}", target.getName()));
 
-        target.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                "&a" + sender.getName() + "&f has requested you to fight on a duel match."));
+        target.sendMessage(mm.getMessage("request-received",
+                "&a{sender}&f has requested you to fight on a duel match.",
+                "{sender}", sender.getName()));
 
+        String prefix = mm.getMessage("request-click-prefix", "Type /duel accept or ");
+        String btnText = mm.getMessage("request-click-button", "&a[Click me]");
+        String hoverText = mm.getMessage("request-click-hover", "Click to accept duel from {sender}", "{sender}", sender.getName());
+        String suffix = mm.getMessage("request-click-suffix", " to accept the challenge.");
 
-        TextComponent msg = new TextComponent(ChatColor.translateAlternateColorCodes('&', "Type /duel accept or "));
-        TextComponent click = new TextComponent(ChatColor.translateAlternateColorCodes('&', "&a[Click me]"));
+        TextComponent msg = new TextComponent(prefix);
+        TextComponent click = new TextComponent(btnText);
         click.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/duel accept " + sender.getName()));
         click.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
-                new ComponentBuilder("Click to accept duel from " + sender.getName()).create()));
+                new ComponentBuilder(hoverText).create()));
         msg.addExtra(click);
-        msg.addExtra(new TextComponent(ChatColor.translateAlternateColorCodes('&', "&f to accept the challenge.")));
+        msg.addExtra(new TextComponent(suffix));
 
         target.spigot().sendMessage(msg);
 
@@ -222,26 +232,28 @@ public class DuelRequestManager {
     }
 
     public void cancelRequest(Player sender) {
+        DuelMessageManager mm = arenaManager.getMessageManager();
         UUID senderId = sender.getUniqueId();
         if (pendingRequests.containsKey(senderId)) {
             pendingRequests.remove(senderId);
             requestTimestamps.remove(senderId);
-            sender.sendMessage(ChatColor.GREEN + "Pending duel request cancelled.");
+            sender.sendMessage(mm.getMessage("request-cancelled", "&aPending duel request cancelled."));
             playSound(sender, Sound.UI_BUTTON_CLICK);
         } else {
-            String msg = ChatColor.RED + "You do not have any pending duel requests.";
+            String msg = mm.getMessage("request-no-pending", "&cYou do not have any pending duel requests.");
             sender.sendMessage(msg);
             sendError(sender, msg);
         }
     }
 
     public void declineRequest(Player target, String senderName) {
+        DuelMessageManager mm = arenaManager.getMessageManager();
         UUID targetId = target.getUniqueId();
 
         UUID foundSender = findRequest(targetId, senderName);
 
         if (foundSender == null) {
-            String msg = ChatColor.RED + "You do not have a pending request from that player.";
+            String msg = mm.getMessage("request-no-pending", "&cYou do not have any pending duel requests.");
             target.sendMessage(msg);
             sendError(target, msg);
             return;
@@ -250,13 +262,14 @@ public class DuelRequestManager {
         pendingRequests.remove(foundSender);
         requestTimestamps.remove(foundSender);
 
-        target.sendMessage(ChatColor.RED + "You declined the duel request.");
+        target.sendMessage(mm.getMessage("request-declined-target", "&cYou declined the duel request."));
         playSound(target, Sound.UI_BUTTON_CLICK);
 
         Player sender = Bukkit.getPlayer(foundSender);
         if (sender != null) {
-            sender.sendMessage(ChatColor.translateAlternateColorCodes('&',
-                    "&a" + target.getName() + "&f declined your duel match."));
+            sender.sendMessage(mm.getMessage("request-declined-sender",
+                    "&a{player}&f declined your duel match.",
+                    "{player}", target.getName()));
             playSound(sender, Sound.ENTITY_VILLAGER_NO);
         }
     }

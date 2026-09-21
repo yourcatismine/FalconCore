@@ -47,6 +47,12 @@ public class AntiCheatListener implements Listener {
             return;
         }
 
+        // If movement is across worlds or large distance (teleport), reset movement state without running cross-region checks
+        if (from.getWorld() != to.getWorld() || from.distanceSquared(to) > 36.0) {
+            data.resetMovementState(to);
+            return;
+        }
+
         data.updateMove(from, to);
 
         if (data.isAnticheatSetback()) return;
@@ -241,7 +247,7 @@ public class AntiCheatListener implements Listener {
 
             Location vLoc = to.clone();
             org.bukkit.World world = vLoc.getWorld();
-            if (world == null) continue;
+            if (world == null || !com.falconcore.anticheat.data.PlayerData.isRegionSafe(vLoc)) continue;
 
             boolean inLiquid = vehicle.isInWater() || vLoc.getBlock().isLiquid();
             boolean nearGround = false;

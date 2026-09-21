@@ -156,7 +156,7 @@ public class JesusCheck extends Check {
     }
 
     private boolean hasStepUpBlockNearby(Location loc) {
-        if (loc.getWorld() == null) return false;
+        if (loc.getWorld() == null || !PlayerData.isRegionSafe(loc)) return true;
         int bx = loc.getBlockX();
         int by = loc.getBlockY();
         int bz = loc.getBlockZ();
@@ -178,7 +178,7 @@ public class JesusCheck extends Check {
     }
 
     private boolean isStandingOnSolidBlock(Location loc) {
-        if (loc.getWorld() == null) return true;
+        if (loc.getWorld() == null || !PlayerData.isRegionSafe(loc)) return true;
         double playerFeetY = loc.getY();
         double minX = loc.getX() - 0.35;
         double maxX = loc.getX() + 0.35;

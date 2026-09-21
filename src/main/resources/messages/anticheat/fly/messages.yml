@@ -1,0 +1,65 @@
+# ─────────────────────────────────────────────────────────────
+# FalconCore - AntiCheat: Fly Messages Configuration
+# ─────────────────────────────────────────────────────────────
+
+# Staff Alert Format (Styled like /checkban and /checkmute)
+# Placeholders:
+#   %player%    - Player username
+#   %check%     - Check name (e.g. Fly)
+#   %type%      - Sub-check type (e.g. Type G (Air Jump))
+#   %vl%        - Current Violation Level
+#   %ping%      - Player ping (ms)
+#   %details%   - Technical diagnostic details
+#   %date%      - Formatted date & time
+alert:
+  messages:
+    - "&c&m---------------------------------"
+    - "&c AntiCheat Detection: &f%player%"
+    - ""
+    - "&c Status: &eDetected"
+    - "&c Check: &f%check% &8(&c%type%&8)"
+    - "&c Violation Level: &f%vl%"
+    - "&c Ping: &f%ping%ms"
+    - "&c Details: &7%details%"
+    - "&c Date: &f%date%"
+    - "&c&m---------------------------------"
+  hover:
+    - "&c&lFalcon AntiCheat"
+    - "&8&m---------------------------------"
+    - "&7Player: &f%player%"
+    - "&7Check: &c%check% &7(%type%)"
+    - "&7Violation: &e%vl%"
+    - "&7Ping: &f%ping%ms"
+    - "&7Details: &f%details%"
+    - "&8&m---------------------------------"
+    - "&aClick to teleport to player"
+  click-command: "/tp %player%"
+
+# Commands Messages
+commands:
+  prefix: "&8[&c&lFalconAC&8] "
+  no-permission: "&cYou do not have permission to execute this command."
+  only-players: "&cOnly in-game players can execute this command."
+  alerts-enabled: "&aAntiCheat alerts have been &2&lENABLED&a."
+  alerts-disabled: "&cAntiCheat alerts have been &4&lDISABLED&c."
+  reloaded: "&aAntiCheat configurations and messages reloaded successfully!"
+  player-not-found: "&cPlayer '&e%player%&c' was not found or is offline."
+  reset-success: "&aReset violation levels for &b%player%&a."
+  info-header:
+    - "&c&m---------------------------------"
+    - "&c AntiCheat Info: &f%player%"
+    - ""
+    - "&c Status: &aMonitoring"
+    - "&c Ping: &f%ping%ms"
+    - "&c Bedrock: &f%is_bedrock%"
+    - "&c Air Ticks: &f%air_ticks%"
+    - "&c Ground Ticks: &f%ground_ticks%"
+    - "&c Total VL: &f%total_vl%"
+    - "&c&m---------------------------------"
+  info-check-line: " &8• &c%check% &7(%type%): &fVL %vl%"
+
+# Discord Webhook Notification
+webhook:
+  title: "🛡️ AntiCheat Alert: %player%"
+  description: "**Player:** `%player%`\n**Check:** `%check%` (%type%)\n**Violation Level:** `%vl%`\n**Ping:** `%ping%ms`\n**Details:** `%details%`\n**Date:** `%date%`"
+  color: 16724530 # Red color integer

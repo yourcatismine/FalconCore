@@ -165,6 +165,15 @@ public class PlayerData {
         }
     }
 
+    public static boolean isRegionSafe(Location loc) {
+        if (loc == null || loc.getWorld() == null) return false;
+        try {
+            return Bukkit.isOwnedByCurrentRegion(loc);
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
     private void updateSurroundings(Player player, Location loc) {
         checkSurroundingBlocks(player, loc);
 
@@ -183,7 +192,7 @@ public class PlayerData {
 
         boolean wasRiptiding = this.riptiding;
         this.riptiding = player.isRiptiding();
-        boolean inWaterOrRainForRiptide = player.isInWaterOrRain() || (loc.getWorld() != null && loc.getWorld().hasStorm() && loc.getY() >= loc.getWorld().getHighestBlockYAt(loc) - 1);
+        boolean inWaterOrRainForRiptide = player.isInWaterOrRain() || (loc.getWorld() != null && isRegionSafe(loc) && loc.getWorld().hasStorm() && loc.getY() >= loc.getWorld().getHighestBlockYAt(loc) - 1);
 
         if (this.riptiding) {
             this.hadVelocityThisAir = true;
@@ -312,7 +321,7 @@ public class PlayerData {
     }
 
     private boolean checkMathematicalGround(Location loc) {
-        if (loc.getWorld() == null) return true;
+        if (loc.getWorld() == null || !isRegionSafe(loc)) return true;
         double playerMinX = loc.getX() - 0.3;
         double playerMaxX = loc.getX() + 0.3;
         double playerMinZ = loc.getZ() - 0.3;
@@ -356,7 +365,7 @@ public class PlayerData {
     }
 
     private boolean checkNearSolidBelow(Location loc) {
-        if (loc.getWorld() == null) return true;
+        if (loc.getWorld() == null || !isRegionSafe(loc)) return true;
         double playerMinX = loc.getX() - 0.3;
         double playerMaxX = loc.getX() + 0.3;
         double playerMinZ = loc.getZ() - 0.3;
@@ -400,7 +409,7 @@ public class PlayerData {
     }
 
     private void checkSurroundingBlocks(Player player, Location loc) {
-        if (loc.getWorld() == null) return;
+        if (loc.getWorld() == null || !isRegionSafe(loc)) return;
         this.inWater = player.isInWater() || loc.getBlock().isLiquid() || player.getEyeLocation().getBlock().isLiquid();
         this.inLava = false;
         this.inWeb = false;

@@ -77,8 +77,17 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
             }
             org.bukkit.entity.Player player = (org.bukkit.entity.Player) sender;
 
+            DuelMessageManager mm = arenaManager.getMessageManager();
             if (arenaManager.isInDuel(player)) {
-                String msg = org.bukkit.ChatColor.GRAY + "You forfeited the match.";
+                if (arenaManager.isSoloTest(player)) {
+                    String msg = org.bukkit.ChatColor.GRAY + "You exited the solo duel test.";
+                    sender.sendMessage(msg);
+                    player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                            new net.md_5.bungee.api.chat.TextComponent(msg));
+                    arenaManager.stopSoloTest(player);
+                    return true;
+                }
+                String msg = mm.getMessage("forfeit", "&7You forfeited the match.");
                 sender.sendMessage(msg);
                 player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
                         new net.md_5.bungee.api.chat.TextComponent(msg));
@@ -88,7 +97,7 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
             }
 
             if (arenaManager.isLooting(player)) {
-                String msg = org.bukkit.ChatColor.GRAY + "You left the arena.";
+                String msg = mm.getMessage("left-arena", "&7You left the arena.");
                 sender.sendMessage(msg);
                 player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
                         new net.md_5.bungee.api.chat.TextComponent(msg));
@@ -96,7 +105,27 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
                 return true;
             }
 
-            String errorMsg = ChatColor.RED + "You are not in a duel.";
+            String errorMsg = mm.getMessage("not-in-duel", "&cYou are not in a duel.");
+            sender.sendMessage(errorMsg);
+            player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                    new net.md_5.bungee.api.chat.TextComponent(errorMsg));
+            return true;
+        } else if (subCommand.equals("stop")) {
+            if (!(sender instanceof org.bukkit.entity.Player)) {
+                sender.sendMessage(ChatColor.RED + "Only players can use this command.");
+                return true;
+            }
+            org.bukkit.entity.Player player = (org.bukkit.entity.Player) sender;
+            DuelMessageManager mm = arenaManager.getMessageManager();
+            if (queueManager.isInQueue(player.getUniqueId())) {
+                queueManager.leaveQueue(player);
+                String msg = mm.getMessage("queue-leave", "&7You left the duel queue.");
+                player.sendMessage(msg);
+                player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                        new net.md_5.bungee.api.chat.TextComponent(msg));
+                return true;
+            }
+            String errorMsg = mm.getMessage("queue-not-in", "&cYou are not in the duel queue.");
             sender.sendMessage(errorMsg);
             player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
                     new net.md_5.bungee.api.chat.TextComponent(errorMsg));
@@ -127,7 +156,15 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
                 return true;
             }
             org.bukkit.entity.Player player = (org.bukkit.entity.Player) sender;
-            queueManager.openQueueGUI(player);
+            if (arenaManager.isInDuel(player) || arenaManager.isPreDuel(player) || arenaManager.isLooting(player)) {
+                player.sendMessage(ChatColor.RED + "You cannot join the queue while in a duel!");
+                return true;
+            }
+            if (queueManager.isInQueue(player.getUniqueId())) {
+                player.sendMessage(ChatColor.YELLOW + "You are already in the duel queue! (Type /duel stop to leave)");
+                return true;
+            }
+            queueManager.joinQueue(player);
             return true;
         } else if (subCommand.equals("cancel")) {
             if (!(sender instanceof org.bukkit.entity.Player)) {
@@ -153,6 +190,23 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
                 requestManager.acceptRequest(target, senderName);
             } else {
                 requestManager.declineRequest(target, senderName);
+            }
+            return true;
+        } else if (subCommand.equals("test")) {
+            if (!sender.hasPermission("falcon.duel")) {
+                sender.sendMessage(ChatColor.RED + "You do not have permission to use this command.");
+                return true;
+            }
+            if (!(sender instanceof org.bukkit.entity.Player)) {
+                sender.sendMessage(ChatColor.RED + "Only players can use this command.");
+                return true;
+            }
+            org.bukkit.entity.Player player = (org.bukkit.entity.Player) sender;
+            String biome = (args.length > 1) ? args[1] : "Random";
+            sender.sendMessage(ChatColor.GREEN + "Starting solo duel elevator test...");
+            boolean started = arenaManager.startSoloTestDuel(player, 5, biome);
+            if (!started) {
+                sender.sendMessage(ChatColor.RED + "No available duel arena found to test. Please check arena regions!");
             }
             return true;
         }
@@ -360,20 +414,48 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
         List<String> completions = new ArrayList<>();
 
         if (args.length == 1) {
+            if (sender instanceof org.bukkit.entity.Player) {
+                org.bukkit.entity.Player player = (org.bukkit.entity.Player) sender;
+
+                if (arenaManager.isInDuel(player) || arenaManager.isLooting(player)) {
+                    completions.add("leave");
+                    return completions.stream()
+                            .filter(s -> s.toLowerCase().startsWith(args[0].toLowerCase()))
+                            .collect(Collectors.toList());
+                }
+
+                if (queueManager.isInQueue(player.getUniqueId())) {
+                    completions.add("stop");
+                    return completions.stream()
+                            .filter(s -> s.toLowerCase().startsWith(args[0].toLowerCase()))
+                            .collect(Collectors.toList());
+                }
+
+                completions.add("queue");
+                completions.add("cancel");
+                completions.add("accept");
+                completions.add("decline");
+
+                if (sender.hasPermission("falcon.duel")) {
+                    completions.add("create");
+                    completions.add("settings");
+                    completions.add("test");
+                }
+
+                completions.addAll(Bukkit.getOnlinePlayers().stream()
+                        .filter(p -> !p.getUniqueId().equals(player.getUniqueId()))
+                        .map(org.bukkit.entity.Player::getName)
+                        .collect(Collectors.toList()));
+
+                return completions.stream()
+                        .filter(s -> s.toLowerCase().startsWith(args[0].toLowerCase()))
+                        .collect(Collectors.toList());
+            }
+
             completions.add("queue");
             completions.add("cancel");
             completions.add("accept");
             completions.add("decline");
-            completions.add("leave");
-            if (sender.hasPermission("falcon.duel")) {
-                completions.add("create");
-                completions.add("settings");
-            }
-
-            completions.addAll(Bukkit.getOnlinePlayers().stream()
-                    .map(org.bukkit.entity.Player::getName)
-                    .collect(Collectors.toList()));
-
             return completions.stream()
                     .filter(s -> s.toLowerCase().startsWith(args[0].toLowerCase()))
                     .collect(Collectors.toList());

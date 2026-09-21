@@ -8,6 +8,8 @@ import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerBlockChange;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerChunkData;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerMultiBlockChange;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnEntity;
+import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerDestroyEntities;
 import com.h2ph.Falcon;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -55,23 +57,70 @@ public class AntiXrayListener implements Listener {
         this.packetListener = new PacketListenerAbstract(PacketListenerPriority.LOW) {
             @Override
             public void onPacketSend(PacketSendEvent event) {
-                if (!config.isEnabled()) return;
+                if (!config.isEnabled() || event == null) return;
 
-                if (event.getPacketType() == PacketType.Play.Server.CHUNK_DATA) {
-                    Player player = getBukkitPlayer(event);
-                    if (player == null) return;
-                    WrapperPlayServerChunkData packet = new WrapperPlayServerChunkData(event);
-                    processor.processChunk(packet, player);
-                } else if (event.getPacketType() == PacketType.Play.Server.BLOCK_CHANGE) {
-                    Player player = getBukkitPlayer(event);
-                    if (player == null) return;
-                    WrapperPlayServerBlockChange packet = new WrapperPlayServerBlockChange(event);
-                    processor.processBlockChange(packet, player);
-                } else if (event.getPacketType() == PacketType.Play.Server.MULTI_BLOCK_CHANGE) {
-                    Player player = getBukkitPlayer(event);
-                    if (player == null) return;
-                    WrapperPlayServerMultiBlockChange packet = new WrapperPlayServerMultiBlockChange(event);
-                    processor.processMultiBlockChange(packet, player);
+                try {
+                    if (event.getPacketType() == PacketType.Play.Server.SPAWN_ENTITY) {
+                        Player player = getBukkitPlayer(event);
+                        if (player == null || player.hasPermission(config.getBypassPermission())) return;
+                        World world = player.getWorld();
+                        if (!config.isWorldEnabled(world)) return;
+
+                        int worldType = config.getWorldType(world);
+                        if (config.isAntiFreecamEnabled(world)) {
+                            WrapperPlayServerSpawnEntity packet = new WrapperPlayServerSpawnEntity(event);
+                            com.github.retrooper.packetevents.util.Vector3d pos = packet.getPosition();
+                            int freecamMaxY = config.getFreecamMaxY(worldType);
+
+                            if (pos.getY() <= freecamMaxY) {
+                                int px = player.getLocation().getBlockX();
+                                int py = player.getLocation().getBlockY();
+                                int pz = player.getLocation().getBlockZ();
+                                int freecamDist = config.getAntiFreecamDistance();
+                                int freecamVertDist = config.getAntiFreecamVerticalDistance();
+
+                                int bdx = Math.abs((int) pos.getX() - px);
+                                int bdz = Math.abs((int) pos.getZ() - pz);
+                                int bdy = py - (int) pos.getY();
+
+                                if (bdx > freecamDist || bdz > freecamDist || bdy > freecamVertDist) {
+                                    event.setCancelled(true);
+                                    PlayerFreecamTracker tracker = freecamTrackers.computeIfAbsent(player.getUniqueId(),
+                                            k -> new PlayerFreecamTracker(px >> 4, pz >> 4, px, py, pz));
+                                    tracker.hiddenEntities.put(packet.getEntityId(), new HiddenEntityInfo(packet));
+                                    return;
+                                }
+                            }
+                        }
+                    } else if (event.getPacketType() == PacketType.Play.Server.DESTROY_ENTITIES) {
+                        Player player = getBukkitPlayer(event);
+                        if (player != null) {
+                            PlayerFreecamTracker tracker = freecamTrackers.get(player.getUniqueId());
+                            if (tracker != null && !tracker.hiddenEntities.isEmpty()) {
+                                WrapperPlayServerDestroyEntities packet = new WrapperPlayServerDestroyEntities(event);
+                                for (int id : packet.getEntityIds()) {
+                                    tracker.hiddenEntities.remove(id);
+                                }
+                            }
+                        }
+                    } else if (event.getPacketType() == PacketType.Play.Server.CHUNK_DATA) {
+                        Player player = getBukkitPlayer(event);
+                        if (player == null) return;
+                        WrapperPlayServerChunkData packet = new WrapperPlayServerChunkData(event);
+                        processor.processChunk(packet, player);
+                    } else if (event.getPacketType() == PacketType.Play.Server.BLOCK_CHANGE) {
+                        Player player = getBukkitPlayer(event);
+                        if (player == null) return;
+                        WrapperPlayServerBlockChange packet = new WrapperPlayServerBlockChange(event);
+                        processor.processBlockChange(packet, player);
+                    } else if (event.getPacketType() == PacketType.Play.Server.MULTI_BLOCK_CHANGE) {
+                        Player player = getBukkitPlayer(event);
+                        if (player == null) return;
+                        WrapperPlayServerMultiBlockChange packet = new WrapperPlayServerMultiBlockChange(event);
+                        processor.processMultiBlockChange(packet, player);
+                    }
+                } catch (Throwable ignored) {
+                    // Prevent any packet decoding exception from breaking Netty pipeline or corrupting chunk stream
                 }
             }
         };
@@ -176,8 +225,9 @@ public class AntiXrayListener implements Listener {
         int chunkX = toX >> 4;
         int chunkZ = toZ >> 4;
 
-        // 1. Anti-Freecam Dynamic Boundary Restoration
-        if (config.isAntiFreecamEnabled()) {
+        // 1. Anti-Freecam Dynamic Boundary & Entity Restoration
+        int worldType = config.getWorldType(world);
+        if (config.isAntiFreecamEnabled(world)) {
             PlayerFreecamTracker tracker = freecamTrackers.computeIfAbsent(player.getUniqueId(),
                     k -> new PlayerFreecamTracker(chunkX, chunkZ, toX, toY, toZ));
 
@@ -186,21 +236,41 @@ public class AntiXrayListener implements Listener {
             int deltaY = Math.abs(toY - tracker.lastBlockY);
             int deltaZ = Math.abs(toZ - tracker.lastBlockZ);
 
-            if (deltaX >= threshold || deltaZ >= threshold || deltaY >= threshold
-                    || tracker.lastChunkX != chunkX || tracker.lastChunkZ != chunkZ) {
+            // Dynamically reveal any hidden mobs/entities that entered the player's legitimate viewing frustum
+            if (!tracker.hiddenEntities.isEmpty()) {
+                int freecamMaxY = config.getFreecamMaxY(worldType);
+                int freecamDist = config.getAntiFreecamDistance();
+                int freecamVertDist = config.getAntiFreecamVerticalDistance();
 
-                int oldChunkX = tracker.lastChunkX;
-                int oldChunkZ = tracker.lastChunkZ;
-                tracker.lastChunkX = chunkX;
-                tracker.lastChunkZ = chunkZ;
+                for (Map.Entry<Integer, HiddenEntityInfo> entry : tracker.hiddenEntities.entrySet()) {
+                    HiddenEntityInfo info = entry.getValue();
+                    int bdx = Math.abs((int) info.x - toX);
+                    int bdz = Math.abs((int) info.z - toZ);
+                    int bdy = toY - (int) info.y;
+
+                    if (info.y > freecamMaxY || (bdx <= freecamDist && bdz <= freecamDist && bdy <= freecamVertDist)) {
+                        tracker.hiddenEntities.remove(entry.getKey());
+                        try {
+                            PacketEvents.getAPI().getPlayerManager().sendPacket(player, info.createSpawnPacket());
+                        } catch (Throwable ignored) {}
+                    }
+                }
+            }
+
+            if (deltaX >= threshold || deltaZ >= threshold || deltaY >= threshold
+                    || Math.abs(chunkX - tracker.lastChunkX) > 0 || Math.abs(chunkZ - tracker.lastChunkZ) > 0) {
+
                 tracker.lastBlockX = toX;
                 tracker.lastBlockY = toY;
                 tracker.lastBlockZ = toZ;
+                tracker.lastChunkX = chunkX;
+                tracker.lastChunkZ = chunkZ;
                 tracker.lastUpdateTime = System.currentTimeMillis();
 
                 int freecamDist = config.getAntiFreecamDistance();
                 int chunkRadius = (freecamDist >> 4) + 1;
 
+                // Dynamically refresh nearby subterranean chunks on the player's client via NMS
                 for (int cx = chunkX - chunkRadius; cx <= chunkX + chunkRadius; cx++) {
                     for (int cz = chunkZ - chunkRadius; cz <= chunkZ + chunkRadius; cz++) {
                         final int targetCX = cx;
@@ -223,7 +293,7 @@ public class AntiXrayListener implements Listener {
         }
 
         // 2. Engine Mode 1 Exposed Cave Ore Restoration
-        if (config.getEngineMode() == 1) {
+        if (config.getEngineMode(world) == 1) {
             int caveDist = config.getCaveRevealDistance();
             int caveDistSq = caveDist * caveDist;
             int caveChunkRadius = (caveDist >> 4) + 1;
@@ -271,6 +341,45 @@ public class AntiXrayListener implements Listener {
         cache.clearWorld(event.getWorld().getName());
     }
 
+    public static class HiddenEntityInfo {
+        final int entityId;
+        final java.util.Optional<UUID> uuid;
+        final com.github.retrooper.packetevents.protocol.entity.type.EntityType entityType;
+        double x, y, z;
+        float pitch, yaw, headYaw;
+        int data;
+        java.util.Optional<com.github.retrooper.packetevents.util.Vector3d> velocity;
+
+        public HiddenEntityInfo(WrapperPlayServerSpawnEntity packet) {
+            this.entityId = packet.getEntityId();
+            this.uuid = packet.getUUID();
+            this.entityType = packet.getEntityType();
+            com.github.retrooper.packetevents.util.Vector3d pos = packet.getPosition();
+            this.x = pos.getX();
+            this.y = pos.getY();
+            this.z = pos.getZ();
+            this.pitch = packet.getPitch();
+            this.yaw = packet.getYaw();
+            this.headYaw = packet.getYaw();
+            this.data = packet.getData();
+            this.velocity = packet.getVelocity();
+        }
+
+        public WrapperPlayServerSpawnEntity createSpawnPacket() {
+            return new WrapperPlayServerSpawnEntity(
+                    entityId,
+                    uuid,
+                    entityType,
+                    new com.github.retrooper.packetevents.util.Vector3d(x, y, z),
+                    pitch,
+                    yaw,
+                    headYaw,
+                    data,
+                    velocity
+            );
+        }
+    }
+
     private static class PlayerFreecamTracker {
         int lastChunkX;
         int lastChunkZ;
@@ -278,6 +387,7 @@ public class AntiXrayListener implements Listener {
         int lastBlockY;
         int lastBlockZ;
         long lastUpdateTime;
+        final Map<Integer, HiddenEntityInfo> hiddenEntities = new ConcurrentHashMap<>();
 
         PlayerFreecamTracker(int cx, int cz, int bx, int by, int bz) {
             this.lastChunkX = cx;

@@ -17,7 +17,8 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Manages the duel queue system with live GUI updates.
+ * Manages the duel queue system with live GUI updates, strict FIFO matchmaking,
+ * and anti-1v2 race condition protection. Handles direct queue integration via click-to-duel and commands.
  */
 public class DuelQueueManager implements Listener {
 
@@ -26,11 +27,15 @@ public class DuelQueueManager implements Listener {
     private final DuelArenaManager arenaManager;
     private DuelRequestManager requestManager;
 
-    private final Map<UUID, Long> queuedPlayers = new ConcurrentHashMap<>();
+    /**
+     * Strict First-Come First-Served (FIFO) queue storage preserving entry order.
+     */
+    private final Map<UUID, Long> queuedPlayers = Collections.synchronizedMap(new LinkedHashMap<>());
 
     private final Map<UUID, org.bukkit.scheduler.BukkitTask> guiUpdateTasks = new ConcurrentHashMap<>();
 
     private final Map<UUID, org.bukkit.scheduler.BukkitTask> searchTasks = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> queueAnnounceCooldown = new ConcurrentHashMap<>();
 
     public static final String QUEUE_GUI_TITLE = ChatColor.translateAlternateColorCodes('&', "&8ᴅᴜᴇʟ ǫᴜᴇᴜᴇ & ᴄᴏɴꜰɪʀᴍ");
 
@@ -214,14 +219,28 @@ public class DuelQueueManager implements Listener {
     /**
      * Adds a player to the queue.
      */
-    public void joinQueue(Player player) {
+    public synchronized void joinQueue(Player player) {
+        if (player == null || !player.isOnline()) return;
+
+        DuelMessageManager mm = arenaManager.getMessageManager();
+
+        if (arenaManager.isInDuel(player) || arenaManager.isPreDuel(player) || arenaManager.isLooting(player)) {
+            player.sendMessage(mm.getMessage("queue-cannot-join-in-duel", "&cYou cannot join the queue while in a duel!"));
+            return;
+        }
+
+        if (isInQueue(player.getUniqueId())) {
+            player.sendMessage(mm.getMessage("queue-already-in", "&eYou are already in the duel queue! (Type /duel stop to leave)"));
+            return;
+        }
+
         if (requestManager != null && requestManager.hasPendingRequest(player)) {
             requestManager.cancelRequest(player);
         }
 
         long startTime = System.currentTimeMillis();
         queuedPlayers.put(player.getUniqueId(), startTime);
-        player.sendMessage(ChatColor.GREEN + "You are now searching for a match...");
+        player.sendMessage(mm.getMessage("queue-searching", "&aYou are now searching for a match..."));
 
         org.bukkit.scheduler.BukkitTask searchTask = plugin.getSchedulerAdapter().runEntityTaskTimer(player, () -> {
             if (!queuedPlayers.containsKey(player.getUniqueId())) {
@@ -233,7 +252,7 @@ public class DuelQueueManager implements Listener {
             String actionBarMsg;
 
             if (elapsed >= 30) {
-                String failMsg = ChatColor.translateAlternateColorCodes('&', "&cUnable to find players to match");
+                String failMsg = mm.getMessage("queue-timeout-actionbar", "&cUnable to find players to match");
                 player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
                         new net.md_5.bungee.api.chat.TextComponent(failMsg));
 
@@ -246,8 +265,9 @@ public class DuelQueueManager implements Listener {
                 return;
             } else {
                 String estimatedTime = calculateEstimatedWait(queuedPlayers.size());
-                actionBarMsg = ChatColor.translateAlternateColorCodes('&',
-                        "&7Searching for a Casual Duel... Estimated Time:&b " + estimatedTime);
+                actionBarMsg = mm.getMessage("queue-searching-actionbar",
+                        "&7Searching for a Casual Duel... Estimated Time:&b {time}",
+                        "{time}", estimatedTime);
             }
 
             player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
@@ -256,6 +276,32 @@ public class DuelQueueManager implements Listener {
 
         searchTasks.put(player.getUniqueId(), searchTask);
 
+        long now = System.currentTimeMillis();
+        Long lastAnnounce = queueAnnounceCooldown.get(player.getUniqueId());
+        if (lastAnnounce == null || (now - lastAnnounce) >= 15000) {
+            queueAnnounceCooldown.put(player.getUniqueId(), now);
+
+            String announceText = mm.getMessage("queue-announcement", "&8[&b&lDUELS&8] &e{player} &7is looking for a duel! ", "{player}", player.getName());
+            String btnText = mm.getMessage("queue-button-text", "&a&l[CLICK TO DUEL]");
+            String hoverText = mm.getMessage("queue-button-hover", "&aClick to join the duel queue against &e{player}", "{player}", player.getName());
+
+            net.md_5.bungee.api.chat.TextComponent msg = new net.md_5.bungee.api.chat.TextComponent(announceText);
+            net.md_5.bungee.api.chat.TextComponent joinBtn = new net.md_5.bungee.api.chat.TextComponent(btnText);
+            joinBtn.setHoverEvent(new net.md_5.bungee.api.chat.HoverEvent(
+                net.md_5.bungee.api.chat.HoverEvent.Action.SHOW_TEXT,
+                new net.md_5.bungee.api.chat.ComponentBuilder(hoverText).create()
+            ));
+            joinBtn.setClickEvent(new net.md_5.bungee.api.chat.ClickEvent(
+                net.md_5.bungee.api.chat.ClickEvent.Action.RUN_COMMAND,
+                "/duel queue"
+            ));
+            msg.addExtra(joinBtn);
+
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                p.spigot().sendMessage(msg);
+            }
+        }
+
         tryMatchPlayers();
     }
 
@@ -263,6 +309,7 @@ public class DuelQueueManager implements Listener {
      * Removes a player from the queue.
      */
     public void leaveQueue(Player player) {
+        if (player == null) return;
         if (queuedPlayers.remove(player.getUniqueId()) != null) {
             cancelSearchTask(player.getUniqueId());
         }
@@ -309,35 +356,74 @@ public class DuelQueueManager implements Listener {
     }
 
     /**
-     * Attempts to match two players from the queue.
+     * Attempts to match two players from the queue in strict FIFO order without race conditions.
      */
-    private void tryMatchPlayers() {
-        if (queuedPlayers.size() >= 2) {
-            Iterator<UUID> iterator = queuedPlayers.keySet().iterator();
-            UUID player1Uuid = iterator.next();
-            UUID player2Uuid = iterator.next();
+    public synchronized void tryMatchPlayers() {
+        while (queuedPlayers.size() >= 2) {
+            List<UUID> invalidUuids = new ArrayList<>();
+            Player player1 = null;
+            Player player2 = null;
 
-            Player player1 = Bukkit.getPlayer(player1Uuid);
-            Player player2 = Bukkit.getPlayer(player2Uuid);
+            synchronized (queuedPlayers) {
+                Iterator<Map.Entry<UUID, Long>> iterator = queuedPlayers.entrySet().iterator();
+                while (iterator.hasNext()) {
+                    UUID u = iterator.next().getKey();
+                    Player p = Bukkit.getPlayer(u);
+                    if (p == null || !p.isOnline() || arenaManager.isInDuel(p) || arenaManager.isPreDuel(p) || arenaManager.isLooting(p)) {
+                        invalidUuids.add(u);
+                        continue;
+                    }
 
-            if (player1 != null && player2 != null && player1.isOnline() && player2.isOnline()) {
+                    if (player1 == null) {
+                        player1 = p;
+                    } else if (player2 == null) {
+                        if (!player1.getUniqueId().equals(p.getUniqueId())) {
+                            player2 = p;
+                            break;
+                        }
+                    }
+                }
+
+                for (UUID inv : invalidUuids) {
+                    queuedPlayers.remove(inv);
+                    cancelSearchTask(inv);
+                    cancelGuiUpdates(inv);
+                }
+
+                if (player1 != null && player2 != null) {
+                    // Atomically remove both players before starting duel to prevent 1v2 or duplicate matches
+                    queuedPlayers.remove(player1.getUniqueId());
+                    queuedPlayers.remove(player2.getUniqueId());
+                } else {
+                    break;
+                }
+            }
+
+            if (player1 != null && player2 != null) {
+                cancelSearchTask(player1.getUniqueId());
+                cancelSearchTask(player2.getUniqueId());
+
+                cancelGuiUpdates(player1.getUniqueId());
+                cancelGuiUpdates(player2.getUniqueId());
+
+                player1.closeInventory();
+                player2.closeInventory();
+
                 boolean started = arenaManager.startDuel(player1, player2);
 
-                if (started) {
-                    queuedPlayers.remove(player1Uuid);
-                    queuedPlayers.remove(player2Uuid);
-
-                    cancelSearchTask(player1Uuid);
-                    cancelSearchTask(player2Uuid);
-
-                    cancelGuiUpdates(player1Uuid);
-                    cancelGuiUpdates(player2Uuid);
-
-                    player1.closeInventory();
-                    player2.closeInventory();
-                } else {
+                if (!started) {
                     plugin.getLogger().info(
                             "No available arena for queue match: " + player1.getName() + " vs " + player2.getName());
+                    // Requeue them if duel could not start
+                    synchronized (queuedPlayers) {
+                        if (!queuedPlayers.containsKey(player1.getUniqueId()) && player1.isOnline()) {
+                            queuedPlayers.put(player1.getUniqueId(), System.currentTimeMillis());
+                        }
+                        if (!queuedPlayers.containsKey(player2.getUniqueId()) && player2.isOnline()) {
+                            queuedPlayers.put(player2.getUniqueId(), System.currentTimeMillis());
+                        }
+                    }
+                    break; // Stop matching loop until an arena is restored
                 }
             }
         }

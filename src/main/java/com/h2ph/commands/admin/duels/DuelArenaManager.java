@@ -7,6 +7,8 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 
 import java.io.File;
 import java.io.IOException;
@@ -19,9 +21,14 @@ public class DuelArenaManager {
 
     private final Falcon plugin;
     private final DuelStatsManager statsManager;
+    private final DuelMessageManager messageManager;
 
     public Falcon getPlugin() {
         return plugin;
+    }
+
+    public DuelMessageManager getMessageManager() {
+        return messageManager;
     }
 
     private final java.util.Map<java.util.UUID, java.util.UUID> activeDuels = new java.util.HashMap<>();
@@ -31,17 +38,65 @@ public class DuelArenaManager {
     private final java.util.Set<java.util.UUID> respawnAtHub = new java.util.HashSet<>();
 
     private final java.util.Map<java.util.UUID, org.bukkit.scheduler.BukkitTask> matchTasks = new java.util.HashMap<>();
-    private final java.util.Map<String, java.util.List<org.bukkit.block.BlockState>> arenaChanges = new java.util.HashMap<>();
+    private final java.util.Map<String, java.util.concurrent.ConcurrentHashMap<String, SavedBlock>> arenaChanges = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public static class SavedBlock {
+        final Location location;
+        final org.bukkit.block.data.BlockData blockData;
+
+        public SavedBlock(Location loc, org.bukkit.block.data.BlockData blockData) {
+            this.location = loc.getBlock().getLocation();
+            this.blockData = blockData.clone();
+        }
+
+        public Location getLocation() {
+            return location;
+        }
+
+        public org.bukkit.block.data.BlockData getBlockData() {
+            return blockData;
+        }
+    }
 
     private java.util.List<String> ignoredCommands = new java.util.ArrayList<>();
     private java.util.List<String> bannedCommands = new java.util.ArrayList<>();
     private final java.util.Set<java.util.UUID> pendingForfeit = new java.util.HashSet<>();
+    private final java.util.Set<java.util.UUID> pendingSpawnReset = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final java.util.Set<java.util.UUID> pendingTeleportToSpawn = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    public void markPendingSpawnReset(java.util.UUID uuid) {
+        if (uuid == null) return;
+        pendingSpawnReset.add(uuid);
+        respawnAtHub.add(uuid);
+    }
+
+    public boolean isPendingSpawnReset(java.util.UUID uuid) {
+        return uuid != null && pendingSpawnReset.contains(uuid);
+    }
+
+    public void removePendingSpawnReset(java.util.UUID uuid) {
+        if (uuid == null) return;
+        pendingSpawnReset.remove(uuid);
+        respawnAtHub.remove(uuid);
+    }
+
+    public void clearSpectatorLocation(Player player) {
+        if (player != null) {
+            spectatingLosers.remove(player.getUniqueId());
+        }
+    }
+
+    private final java.util.Set<java.util.UUID> preDuelPlayers = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final java.util.Map<java.util.UUID, org.bukkit.scheduler.BukkitTask> elevatorTasks = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Map<java.util.UUID, java.util.List<org.bukkit.block.BlockState>> elevatorBlockStates = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Map<java.util.UUID, Location> elevatorSpawnTargets = new java.util.concurrent.ConcurrentHashMap<>();
 
     private final java.util.Map<String, ArenaRegion> arenaMap = new java.util.HashMap<>();
 
     public DuelArenaManager(Falcon plugin, DuelStatsManager statsManager) {
         this.plugin = plugin;
         this.statsManager = statsManager;
+        this.messageManager = new DuelMessageManager(plugin);
         loadConfig();
     }
 
@@ -91,12 +146,25 @@ public class DuelArenaManager {
         }
 
         boolean contains(Location loc) {
-            if (loc == null || loc.getWorld() == null || !loc.getWorld().getName().equals(worldName))
+            return contains(loc, 16.0, 64.0);
+        }
+
+        boolean contains(Location loc, double marginXZ, double marginY) {
+            if (loc == null || loc.getWorld() == null)
                 return false;
+            if (worldName != null) {
+                String locWorld = loc.getWorld().getName();
+                if (!locWorld.equalsIgnoreCase(worldName) &&
+                    !locWorld.replace("minecraft:", "").equalsIgnoreCase(worldName.replace("minecraft:", ""))) {
+                    return false;
+                }
+            }
             double x = loc.getX();
             double y = loc.getY();
             double z = loc.getZ();
-            return x >= minX && x <= maxX && y >= minY && y <= maxY && z >= minZ && z <= maxZ;
+            return x >= (minX - marginXZ) && x <= (maxX + marginXZ) &&
+                   y >= (minY - marginY) && y <= (maxY + marginY) &&
+                   z >= (minZ - marginXZ) && z <= (maxZ + marginXZ);
         }
     }
 
@@ -198,24 +266,49 @@ public class DuelArenaManager {
         spectatingLosers.put(player.getUniqueId(), player.getLocation());
     }
 
+    public void recordBlockChange(String arenaName, Location loc, org.bukkit.block.data.BlockData blockData) {
+        if (arenaName == null || loc == null || loc.getWorld() == null || blockData == null) return;
+        String key = loc.getWorld().getName() + ":" + loc.getBlockX() + ":" + loc.getBlockY() + ":" + loc.getBlockZ();
+        arenaChanges.computeIfAbsent(arenaName, k -> new java.util.concurrent.ConcurrentHashMap<>())
+                .putIfAbsent(key, new SavedBlock(loc, blockData));
+    }
+
     public void recordBlockChange(String arenaName, org.bukkit.block.BlockState state) {
-        arenaChanges.computeIfAbsent(arenaName, k -> new java.util.ArrayList<>()).add(state);
+        if (state == null) return;
+        recordBlockChange(arenaName, state.getLocation(), state.getBlockData());
     }
 
     public void restoreArena(String arenaName) {
         if (arenaName == null)
             return;
-        java.util.List<org.bukkit.block.BlockState> states = arenaChanges.remove(arenaName);
-        if (states != null) {
-            java.util.Collections.reverse(states);
-            for (org.bukkit.block.BlockState state : states) {
-                plugin.getSchedulerAdapter().runAtLocation(state.getLocation(), () -> {
-                    state.update(true, false);
+
+        java.util.concurrent.ConcurrentHashMap<String, SavedBlock> states = arenaChanges.remove(arenaName);
+        ArenaRegion region = arenaMap.get(arenaName);
+
+        if (states != null && !states.isEmpty()) {
+            java.util.Map<Long, java.util.List<SavedBlock>> chunkGroups = new java.util.HashMap<>();
+            for (SavedBlock sb : states.values()) {
+                Location loc = sb.getLocation();
+                int cx = loc.getBlockX() >> 4;
+                int cz = loc.getBlockZ() >> 4;
+                long chunkKey = (((long) cx) << 32) | (((long) cz) & 0xFFFFFFFFL);
+                chunkGroups.computeIfAbsent(chunkKey, k -> new java.util.ArrayList<>()).add(sb);
+            }
+
+            for (java.util.List<SavedBlock> batch : chunkGroups.values()) {
+                if (batch.isEmpty()) continue;
+                Location chunkLoc = batch.get(0).getLocation();
+                plugin.getSchedulerAdapter().runAtLocation(chunkLoc, () -> {
+                    for (SavedBlock sb : batch) {
+                        try {
+                            sb.getLocation().getBlock().setBlockData(sb.getBlockData(), false);
+                        } catch (Throwable ignored) {
+                        }
+                    }
                 });
             }
         }
 
-        ArenaRegion region = arenaMap.get(arenaName);
         if (region == null)
             return;
 
@@ -223,53 +316,37 @@ public class DuelArenaManager {
         if (world == null)
             return;
 
-        double minX = region.minX;
-        double minY = region.minY;
-        double minZ = region.minZ;
-        double maxX = region.maxX;
-        double maxY = region.maxY;
-        double maxZ = region.maxZ;
+        int minChunkX = ((int) Math.floor(region.minX - 16)) >> 4;
+        int maxChunkX = ((int) Math.ceil(region.maxX + 16)) >> 4;
+        int minChunkZ = ((int) Math.floor(region.minZ - 16)) >> 4;
+        int maxChunkZ = ((int) Math.ceil(region.maxZ + 16)) >> 4;
 
-        Location center = new Location(world, (minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2);
+        for (int cx = minChunkX; cx <= maxChunkX; cx++) {
+            for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
+                final int fCx = cx;
+                final int fCz = cz;
+                int blockX = (cx << 4) + 8;
+                int blockZ = (cz << 4) + 8;
+                Location chunkCenter = new Location(world, blockX, (region.minY + region.maxY) / 2, blockZ);
 
-        plugin.getSchedulerAdapter().runAtLocation(center, () -> {
-            for (org.bukkit.entity.Entity entity : world.getEntities()) {
-                if (entity instanceof org.bukkit.entity.Player) {
-                    continue;
-                }
-
-                Location loc = entity.getLocation();
-                double x = loc.getX();
-                double y = loc.getY();
-                double z = loc.getZ();
-
-                if (x >= minX && x <= maxX && y >= minY && y <= maxY && z >= minZ && z <= maxZ) {
-                    entity.remove();
-                }
-            }
-
-            int iMinX = (int) Math.floor(minX);
-            int iMinY = (int) Math.floor(minY);
-            int iMinZ = (int) Math.floor(minZ);
-            int iMaxX = (int) Math.ceil(maxX);
-            int iMaxY = (int) Math.ceil(maxY);
-            int iMaxZ = (int) Math.ceil(maxZ);
-
-            for (int bx = iMinX; bx <= iMaxX; bx++) {
-                for (int by = iMinY; by <= iMaxY; by++) {
-                    for (int bz = iMinZ; bz <= iMaxZ; bz++) {
-                        org.bukkit.block.Block block = world.getBlockAt(bx, by, bz);
-                        org.bukkit.Material type = block.getType();
-                        if (type == org.bukkit.Material.FIRE || type == org.bukkit.Material.SOUL_FIRE) {
-                            block.setType(org.bukkit.Material.AIR);
+                plugin.getSchedulerAdapter().runAtLocation(chunkCenter, () -> {
+                    if (!world.isChunkLoaded(fCx, fCz)) return;
+                    org.bukkit.Chunk chunk = world.getChunkAt(fCx, fCz);
+                    for (org.bukkit.entity.Entity entity : chunk.getEntities()) {
+                        if (entity instanceof org.bukkit.entity.Player) {
+                            continue;
+                        }
+                        Location loc = entity.getLocation();
+                        if (region.contains(loc)) {
+                            entity.remove();
                         }
                     }
-                }
+                });
             }
-        });
+        }
     }
 
-    public boolean startDuel(Player player1, Player player2) {
+    public synchronized boolean startDuel(Player player1, Player player2) {
         return startDuel(player1, player2, 5, "Random");
     }
 
@@ -277,7 +354,17 @@ public class DuelArenaManager {
         return playerArenas.get(player.getUniqueId());
     }
 
-    public boolean startDuel(Player player1, Player player2, int durationMinutes, String biome) {
+    public synchronized boolean startDuel(Player player1, Player player2, int durationMinutes, String biome) {
+        if (player1 == null || player2 == null || !player1.isOnline() || !player2.isOnline()) {
+            return false;
+        }
+        if (player1.getUniqueId().equals(player2.getUniqueId())) {
+            return false;
+        }
+        if (isInDuel(player1) || isInDuel(player2) || isPreDuel(player1) || isPreDuel(player2) || isLooting(player1) || isLooting(player2)) {
+            return false;
+        }
+
         cleanupPendings(player1);
         cleanupPendings(player2);
 
@@ -292,9 +379,6 @@ public class DuelArenaManager {
         if (arenaRegion == null)
             return false;
 
-        if (arenaRegion == null)
-            return false;
-
         Location spawn1 = arenaRegion.spawn1;
         Location spawn2 = arenaRegion.spawn2;
 
@@ -302,46 +386,581 @@ public class DuelArenaManager {
             return false;
         }
 
-        player1.teleportAsync(spawn1);
-        player2.teleportAsync(spawn2);
-
         activeDuels.put(player1.getUniqueId(), player2.getUniqueId());
         activeDuels.put(player2.getUniqueId(), player1.getUniqueId());
         playerArenas.put(player1.getUniqueId(), arenaRegion.name);
         playerArenas.put(player2.getUniqueId(), arenaRegion.name);
 
-        String titleMain = ChatColor.translateAlternateColorCodes('&',
-                "&4" + DuelGUIManager.toSmallCaps("casual duel"));
-        String titleSub = ChatColor.translateAlternateColorCodes('&', "&fFight players and steal their loot.");
-
-        player1.sendTitle(titleMain, titleSub, 10, 60, 20);
-        player2.sendTitle(titleMain, titleSub, 10, 60, 20);
-
-        String p1WinRate = statsManager.getWinRate(player1.getUniqueId());
-        String p2WinRate = statsManager.getWinRate(player2.getUniqueId());
-
-        String p1ActionBar = ChatColor.translateAlternateColorCodes('&',
-                "&7Your opponent &a" + player2.getName() + "&7 has a &d" + p2WinRate + "&7 win rate. Good luck.");
-        String p2ActionBar = ChatColor.translateAlternateColorCodes('&',
-                "&7Your opponent &a" + player1.getName() + "&7 has a &d" + p1WinRate + "&7 win rate. Good luck.");
-
-        player1.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
-                new net.md_5.bungee.api.chat.TextComponent(p1ActionBar));
-        player2.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
-                new net.md_5.bungee.api.chat.TextComponent(p2ActionBar));
-
-        try {
-            player1.playSound(player1.getLocation(), "ambient.cave", 1f, 1f);
-            player2.playSound(player2.getLocation(), "ambient.cave", 1f, 1f);
-        } catch (Exception ignored) {
-        }
-
-        startMatchTimer(player1, player2, durationMinutes * 60);
+        startElevatorSequence(player1, player2, spawn1, spawn2, durationMinutes);
 
         return true;
     }
 
+    private void startElevatorSequence(Player p1, Player p2, Location spawn1, Location spawn2, int durationMinutes) {
+        final double depth = 1.75;
+        final int totalTicks = 60;
+
+        preDuelPlayers.add(p1.getUniqueId());
+        preDuelPlayers.add(p2.getUniqueId());
+
+        elevatorSpawnTargets.put(p1.getUniqueId(), spawn1);
+        elevatorSpawnTargets.put(p2.getUniqueId(), spawn2);
+
+        String titleMain = messageManager.getTitle("elevator-main", "&4" + DuelGUIManager.toSmallCaps("casual duel"));
+        String titleSub = messageManager.getTitle("elevator-sub", "&fFight players and steal their loot.");
+
+        String p1WinRate = statsManager.getWinRate(p1.getUniqueId());
+        String p2WinRate = statsManager.getWinRate(p2.getUniqueId());
+
+        String p1ActionBar = messageManager.getMessage("opponent-info-actionbar",
+                "&7Your opponent &a{player}&7 has a &d{winrate}&7 win rate. Good luck.",
+                "{player}", p2.getName(), "{winrate}", p2WinRate);
+        String p2ActionBar = messageManager.getMessage("opponent-info-actionbar",
+                "&7Your opponent &a{player}&7 has a &d{winrate}&7 win rate. Good luck.",
+                "{player}", p1.getName(), "{winrate}", p1WinRate);
+
+        prepareElevatorShaft(p1.getUniqueId(), spawn1, depth, () -> {
+            prepareElevatorShaft(p2.getUniqueId(), spawn2, depth, () -> {
+                Location start1 = spawn1.clone().subtract(0, depth, 0);
+                Location start2 = spawn2.clone().subtract(0, depth, 0);
+
+                p1.teleportAsync(start1).thenAccept(success1 -> {
+                    plugin.getSchedulerAdapter().runEntityTask(p1, () -> {
+                        p1.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 15, 0, false, false, false));
+                        p1.addPotionEffect(new PotionEffect(PotionEffectType.LEVITATION, totalTicks, 0, false, false, false));
+                        p1.sendTitle(titleMain, titleSub, 5, 20, 5);
+                        p1.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(p1ActionBar));
+                        playElevatorSound(p1);
+                    });
+                });
+
+                p2.teleportAsync(start2).thenAccept(success2 -> {
+                    plugin.getSchedulerAdapter().runEntityTask(p2, () -> {
+                        p2.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 15, 0, false, false, false));
+                        p2.addPotionEffect(new PotionEffect(PotionEffectType.LEVITATION, totalTicks, 0, false, false, false));
+                        p2.sendTitle(titleMain, titleSub, 5, 20, 5);
+                        p2.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(p2ActionBar));
+                        playElevatorSound(p2);
+                    });
+                });
+
+                final java.util.concurrent.atomic.AtomicInteger elapsedTicks = new java.util.concurrent.atomic.AtomicInteger(0);
+                final java.util.concurrent.atomic.AtomicInteger p1PlatformY = new java.util.concurrent.atomic.AtomicInteger(spawn1.getBlockY() - (int) Math.ceil(depth) - 1);
+                final java.util.concurrent.atomic.AtomicInteger p2PlatformY = new java.util.concurrent.atomic.AtomicInteger(spawn2.getBlockY() - (int) Math.ceil(depth) - 1);
+                final java.util.concurrent.atomic.AtomicInteger lastCountdownSec = new java.util.concurrent.atomic.AtomicInteger(99);
+                final java.util.concurrent.atomic.AtomicReference<org.bukkit.scheduler.BukkitTask> taskRef = new java.util.concurrent.atomic.AtomicReference<>();
+
+                org.bukkit.scheduler.BukkitTask task = plugin.getSchedulerAdapter().runEntityTaskTimer(p1, new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!p1.isOnline() || !p2.isOnline()) {
+                            cleanupElevator(p1);
+                            cleanupElevator(p2);
+                            org.bukkit.scheduler.BukkitTask t = taskRef.get();
+                            if (t != null) {
+                                t.cancel();
+                            }
+                            return;
+                        }
+
+                        int currentTicks = elapsedTicks.addAndGet(2);
+
+                        if (currentTicks < totalTicks) {
+                            double progress = (double) currentTicks / totalTicks;
+                            double curY1 = (spawn1.getY() - depth) + (progress * depth);
+                            double curY2 = (spawn2.getY() - depth) + (progress * depth);
+
+                            int newPlat1 = (int) Math.floor(curY1) - 1;
+                            int newPlat2 = (int) Math.floor(curY2) - 1;
+
+                            int oldPlat1 = p1PlatformY.getAndSet(newPlat1);
+                            int oldPlat2 = p2PlatformY.getAndSet(newPlat2);
+
+                            if (newPlat1 != oldPlat1) {
+                                updateElevatorPlatform(spawn1, oldPlat1, newPlat1);
+                            }
+                            if (newPlat2 != oldPlat2) {
+                                updateElevatorPlatform(spawn2, oldPlat2, newPlat2);
+                            }
+
+                            plugin.getSchedulerAdapter().runEntityTask(p1, () -> {
+                                p1.setVelocity(new org.bukkit.util.Vector(0, 0.08, 0));
+                            });
+                            plugin.getSchedulerAdapter().runEntityTask(p2, () -> {
+                                p2.setVelocity(new org.bukkit.util.Vector(0, 0.08, 0));
+                            });
+
+                            if (currentTicks % 10 == 0) {
+                                playElevatorSound(p1);
+                                playElevatorSound(p2);
+                            }
+
+                            int remainingSec = (int) Math.ceil((totalTicks - currentTicks) / 20.0);
+                            if (remainingSec != lastCountdownSec.getAndSet(remainingSec)) {
+                                if (remainingSec == 3) {
+                                    sendCountdown(p1, p2, "&e&l3", 1.0f);
+                                } else if (remainingSec == 2) {
+                                    sendCountdown(p1, p2, "&6&l2", 1.25f);
+                                } else if (remainingSec == 1) {
+                                    sendCountdown(p1, p2, "&c&l1", 1.5f);
+                                }
+                            }
+                        } else {
+                            restoreElevatorShaft(p1.getUniqueId(), spawn1);
+                            restoreElevatorShaft(p2.getUniqueId(), spawn2);
+
+                            preDuelPlayers.remove(p1.getUniqueId());
+                            preDuelPlayers.remove(p2.getUniqueId());
+                            elevatorSpawnTargets.remove(p1.getUniqueId());
+                            elevatorSpawnTargets.remove(p2.getUniqueId());
+
+                            String startTitle = messageManager.getTitle("start-main", "&a&lSTART!");
+                            String startSub = messageManager.getTitle("start-sub", "&fFight your opponent!");
+
+                            plugin.getSchedulerAdapter().runEntityTask(p1, () -> {
+                                p1.removePotionEffect(PotionEffectType.LEVITATION);
+                                p1.removePotionEffect(PotionEffectType.BLINDNESS);
+                                p1.removePotionEffect(PotionEffectType.DARKNESS);
+                                Location cur = p1.getLocation();
+                                if (cur.getY() < spawn1.getY() - 0.5) {
+                                    Location finalLoc = spawn1.clone();
+                                    finalLoc.setYaw(cur.getYaw());
+                                    finalLoc.setPitch(cur.getPitch());
+                                    p1.teleportAsync(finalLoc);
+                                }
+                                p1.sendTitle(startTitle, startSub, 0, 30, 10);
+                                try {
+                                    p1.playSound(p1.getLocation(), org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.2f);
+                                    p1.playSound(p1.getLocation(), org.bukkit.Sound.BLOCK_NOTE_BLOCK_BELL, 1.0f, 1.5f);
+                                } catch (Exception ignored) {
+                                }
+                            });
+
+                            plugin.getSchedulerAdapter().runEntityTask(p2, () -> {
+                                p2.removePotionEffect(PotionEffectType.LEVITATION);
+                                p2.removePotionEffect(PotionEffectType.BLINDNESS);
+                                p2.removePotionEffect(PotionEffectType.DARKNESS);
+                                Location cur = p2.getLocation();
+                                if (cur.getY() < spawn2.getY() - 0.5) {
+                                    Location finalLoc = spawn2.clone();
+                                    finalLoc.setYaw(cur.getYaw());
+                                    finalLoc.setPitch(cur.getPitch());
+                                    p2.teleportAsync(finalLoc);
+                                }
+                                p2.sendTitle(startTitle, startSub, 0, 30, 10);
+                                try {
+                                    p2.playSound(p2.getLocation(), org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.2f);
+                                    p2.playSound(p2.getLocation(), org.bukkit.Sound.BLOCK_NOTE_BLOCK_BELL, 1.0f, 1.5f);
+                                } catch (Exception ignored) {
+                                }
+                            });
+
+                            org.bukkit.scheduler.BukkitTask t = taskRef.get();
+                            if (t != null) {
+                                t.cancel();
+                            }
+                            elevatorTasks.remove(p1.getUniqueId());
+                            elevatorTasks.remove(p2.getUniqueId());
+
+                            startMatchTimer(p1, p2, durationMinutes * 60);
+                        }
+                    }
+                }, 2L, 2L);
+
+                taskRef.set(task);
+                elevatorTasks.put(p1.getUniqueId(), task);
+                elevatorTasks.put(p2.getUniqueId(), task);
+            });
+        });
+    }
+
+    private void prepareElevatorShaft(java.util.UUID uuid, Location spawn, double depth, Runnable onComplete) {
+        if (spawn == null || spawn.getWorld() == null) {
+            if (onComplete != null) onComplete.run();
+            return;
+        }
+        plugin.getSchedulerAdapter().runAtLocation(spawn, () -> {
+            org.bukkit.World world = spawn.getWorld();
+            if (world == null) {
+                if (onComplete != null) onComplete.run();
+                return;
+            }
+
+            int cx = spawn.getBlockX();
+            int cy = spawn.getBlockY();
+            int cz = spawn.getBlockZ();
+            int intDepth = (int) Math.ceil(depth);
+            int startY = cy - intDepth;
+
+            java.util.List<org.bukkit.block.BlockState> savedStates = new java.util.ArrayList<>();
+
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    for (int y = startY - 1; y <= cy + 3; y++) {
+                        org.bukkit.block.Block b = world.getBlockAt(cx + dx, y, cz + dz);
+                        savedStates.add(b.getState());
+                    }
+                }
+            }
+
+            elevatorBlockStates.put(uuid, savedStates);
+
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    world.getBlockAt(cx + dx, startY - 1, cz + dz).setType(org.bukkit.Material.IRON_BLOCK, false);
+                }
+            }
+
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    for (int y = startY; y <= cy + 3; y++) {
+                        world.getBlockAt(cx + dx, y, cz + dz).setType(org.bukkit.Material.AIR, false);
+                    }
+                }
+            }
+
+            if (onComplete != null) {
+                onComplete.run();
+            }
+        });
+    }
+
+    private void updateElevatorPlatform(Location spawn, int prevPlatformY, int newPlatformY) {
+        if (spawn == null || spawn.getWorld() == null) return;
+        if (prevPlatformY == newPlatformY) return;
+
+        plugin.getSchedulerAdapter().runAtLocation(spawn, () -> {
+            org.bukkit.World world = spawn.getWorld();
+            if (world == null) return;
+            int cx = spawn.getBlockX();
+            int cz = spawn.getBlockZ();
+
+            if (prevPlatformY != Integer.MIN_VALUE) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    for (int dz = -1; dz <= 1; dz++) {
+                        world.getBlockAt(cx + dx, prevPlatformY, cz + dz).setType(org.bukkit.Material.AIR, false);
+                    }
+                }
+            }
+
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    world.getBlockAt(cx + dx, newPlatformY, cz + dz).setType(org.bukkit.Material.IRON_BLOCK, false);
+                }
+            }
+        });
+    }
+
+    private void restoreElevatorShaft(java.util.UUID uuid, Location spawn) {
+        java.util.List<org.bukkit.block.BlockState> states = elevatorBlockStates.remove(uuid);
+        if (states != null) {
+            Location restoreLoc = (spawn != null) ? spawn : (states.isEmpty() ? null : states.get(0).getLocation());
+            if (restoreLoc != null) {
+                plugin.getSchedulerAdapter().runAtLocation(restoreLoc, () -> {
+                    for (org.bukkit.block.BlockState state : states) {
+                        state.update(true, false);
+                    }
+                });
+            }
+        }
+    }
+
+    private void playElevatorSound(Player player) {
+        if (player == null || !player.isOnline()) return;
+        plugin.getSchedulerAdapter().runEntityTask(player, () -> {
+            try {
+                player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_MINECART_RIDING, 0.85f, 1.0f);
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    private void sendCountdown(Player p1, Player p2, String title, float pitch) {
+        String coloredTitle = ChatColor.translateAlternateColorCodes('&', title);
+        String sub = ChatColor.translateAlternateColorCodes('&', "&7Prepare for battle!");
+
+        if (p1 != null && p1.isOnline()) {
+            plugin.getSchedulerAdapter().runEntityTask(p1, () -> {
+                p1.sendTitle(coloredTitle, sub, 0, 25, 5);
+                try {
+                    p1.playSound(p1.getLocation(), org.bukkit.Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, pitch);
+                } catch (Exception ignored) {
+                }
+            });
+        }
+
+        if (p2 != null && p2.isOnline()) {
+            plugin.getSchedulerAdapter().runEntityTask(p2, () -> {
+                p2.sendTitle(coloredTitle, sub, 0, 25, 5);
+                try {
+                    p2.playSound(p2.getLocation(), org.bukkit.Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, pitch);
+                } catch (Exception ignored) {
+                }
+            });
+        }
+    }
+
+    public boolean isPreDuel(Player player) {
+        return player != null && preDuelPlayers.contains(player.getUniqueId());
+    }
+
+    public Location getElevatorTarget(Player player) {
+        return player != null ? elevatorSpawnTargets.get(player.getUniqueId()) : null;
+    }
+
+    public void cleanupElevator(Player p) {
+        if (p == null) return;
+        cleanupElevator(p.getUniqueId());
+    }
+
+    public void cleanupElevator(java.util.UUID uuid) {
+        preDuelPlayers.remove(uuid);
+        Location target = elevatorSpawnTargets.remove(uuid);
+        org.bukkit.scheduler.BukkitTask task = elevatorTasks.remove(uuid);
+        if (task != null) {
+            task.cancel();
+        }
+        restoreElevatorShaft(uuid, target);
+        Player player = org.bukkit.Bukkit.getPlayer(uuid);
+        if (player != null && player.isOnline()) {
+            plugin.getSchedulerAdapter().runEntityTask(player, () -> {
+                player.removePotionEffect(PotionEffectType.LEVITATION);
+                player.removePotionEffect(PotionEffectType.DARKNESS);
+                player.removePotionEffect(PotionEffectType.BLINDNESS);
+            });
+        }
+    }
+
+    public void cleanupAllElevators() {
+        for (java.util.UUID uuid : new java.util.HashSet<>(elevatorTasks.keySet())) {
+            cleanupElevator(uuid);
+        }
+        for (java.util.UUID uuid : new java.util.HashSet<>(elevatorBlockStates.keySet())) {
+            restoreElevatorShaft(uuid, null);
+        }
+        preDuelPlayers.clear();
+        elevatorSpawnTargets.clear();
+    }
+
+    public void onDisable() {
+        cleanupAllElevators();
+
+        for (Player p : org.bukkit.Bukkit.getOnlinePlayers()) {
+            if (isInDuel(p) || isLooting(p) || isPreDuel(p) || isLocationInArena(p.getLocation())) {
+                resetPlayer(p);
+            }
+        }
+
+        for (ArenaRegion region : arenaMap.values()) {
+            restoreArena(region.name);
+        }
+
+        activeDuels.clear();
+        playerArenas.clear();
+        activeTasks.clear();
+        spectatingLosers.clear();
+        respawnAtHub.clear();
+        pendingSpawnReset.clear();
+        pendingTeleportToSpawn.clear();
+        matchTasks.clear();
+    }
+
+    public boolean startSoloTestDuel(Player player, int durationMinutes, String biome) {
+        cleanupPendings(player);
+
+        ArenaRegion arenaRegion = getAvailableArena(biome);
+        if (arenaRegion == null) {
+            if (!biome.equalsIgnoreCase("Random")) {
+                return false;
+            }
+            arenaRegion = getAvailableArena("Random");
+        }
+
+        if (arenaRegion == null)
+            return false;
+
+        Location spawn1 = arenaRegion.spawn1;
+        if (spawn1.getWorld() == null) {
+            return false;
+        }
+
+        activeDuels.put(player.getUniqueId(), player.getUniqueId());
+        playerArenas.put(player.getUniqueId(), arenaRegion.name);
+
+        final double depth = 1.75;
+        final int totalTicks = 60;
+
+        preDuelPlayers.add(player.getUniqueId());
+        elevatorSpawnTargets.put(player.getUniqueId(), spawn1);
+
+        String titleMain = ChatColor.translateAlternateColorCodes('&',
+                "&4" + DuelGUIManager.toSmallCaps("casual duel"));
+        String titleSub = ChatColor.translateAlternateColorCodes('&', "&e[TEST MODE] &fTesting elevator animation.");
+        String actionBar = ChatColor.translateAlternateColorCodes('&',
+                "&e[TEST MODE] &7Elevator testing in progress. Type &a/duel leave&7 to exit.");
+
+        prepareElevatorShaft(player.getUniqueId(), spawn1, depth, () -> {
+            Location start1 = spawn1.clone().subtract(0, depth, 0);
+
+            player.teleportAsync(start1).thenAccept(success -> {
+                plugin.getSchedulerAdapter().runEntityTask(player, () -> {
+                    player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 15, 0, false, false, false));
+                    player.addPotionEffect(new PotionEffect(PotionEffectType.LEVITATION, totalTicks, 0, false, false, false));
+                    player.sendTitle(titleMain, titleSub, 5, 20, 5);
+                    player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(actionBar));
+                    playElevatorSound(player);
+                });
+            });
+
+            final java.util.concurrent.atomic.AtomicInteger elapsedTicks = new java.util.concurrent.atomic.AtomicInteger(0);
+            final java.util.concurrent.atomic.AtomicInteger pPlatformY = new java.util.concurrent.atomic.AtomicInteger(spawn1.getBlockY() - (int) Math.ceil(depth) - 1);
+            final java.util.concurrent.atomic.AtomicInteger lastCountdownSec = new java.util.concurrent.atomic.AtomicInteger(99);
+            final java.util.concurrent.atomic.AtomicReference<org.bukkit.scheduler.BukkitTask> taskRef = new java.util.concurrent.atomic.AtomicReference<>();
+
+            org.bukkit.scheduler.BukkitTask task = plugin.getSchedulerAdapter().runEntityTaskTimer(player, new Runnable() {
+                @Override
+                public void run() {
+                    if (!player.isOnline()) {
+                        cleanupElevator(player);
+                        org.bukkit.scheduler.BukkitTask t = taskRef.get();
+                        if (t != null) {
+                            t.cancel();
+                        }
+                        return;
+                    }
+
+                    int currentTicks = elapsedTicks.addAndGet(2);
+
+                    if (currentTicks < totalTicks) {
+                        double progress = (double) currentTicks / totalTicks;
+                        double curY1 = (spawn1.getY() - depth) + (progress * depth);
+
+                        int newPlat1 = (int) Math.floor(curY1) - 1;
+                        int oldPlat1 = pPlatformY.getAndSet(newPlat1);
+
+                        if (newPlat1 != oldPlat1) {
+                            updateElevatorPlatform(spawn1, oldPlat1, newPlat1);
+                        }
+
+                        plugin.getSchedulerAdapter().runEntityTask(player, () -> {
+                            player.setVelocity(new org.bukkit.util.Vector(0, 0.08, 0));
+                        });
+
+                        if (currentTicks % 10 == 0) {
+                            playElevatorSound(player);
+                        }
+
+                        int remainingSec = (int) Math.ceil((totalTicks - currentTicks) / 20.0);
+                        if (remainingSec != lastCountdownSec.getAndSet(remainingSec)) {
+                            if (remainingSec == 3) {
+                                sendSoloCountdown(player, "&e&l3", 1.0f);
+                            } else if (remainingSec == 2) {
+                                sendSoloCountdown(player, "&6&l2", 1.25f);
+                            } else if (remainingSec == 1) {
+                                sendSoloCountdown(player, "&c&l1", 1.5f);
+                            }
+                        }
+                    } else {
+                        restoreElevatorShaft(player.getUniqueId(), spawn1);
+
+                        preDuelPlayers.remove(player.getUniqueId());
+                        elevatorSpawnTargets.remove(player.getUniqueId());
+
+                        String startTitle = ChatColor.translateAlternateColorCodes('&', "&a&lSTART!");
+                        String startSub = ChatColor.translateAlternateColorCodes('&', "&fSolo duel test started! Use /duel leave to exit.");
+
+                        plugin.getSchedulerAdapter().runEntityTask(player, () -> {
+                            player.removePotionEffect(PotionEffectType.LEVITATION);
+                            player.removePotionEffect(PotionEffectType.BLINDNESS);
+                            player.removePotionEffect(PotionEffectType.DARKNESS);
+                            Location cur = player.getLocation();
+                            if (cur.getY() < spawn1.getY() - 0.5) {
+                                Location finalLoc = spawn1.clone();
+                                finalLoc.setYaw(cur.getYaw());
+                                finalLoc.setPitch(cur.getPitch());
+                                player.teleportAsync(finalLoc);
+                            }
+                            player.sendTitle(startTitle, startSub, 0, 30, 10);
+                            try {
+                                player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.2f);
+                                player.playSound(player.getLocation(), org.bukkit.Sound.BLOCK_NOTE_BLOCK_BELL, 1.0f, 1.5f);
+                            } catch (Exception ignored) {
+                            }
+                        });
+
+                        org.bukkit.scheduler.BukkitTask t = taskRef.get();
+                        if (t != null) {
+                            t.cancel();
+                        }
+                        elevatorTasks.remove(player.getUniqueId());
+
+                        startSoloMatchTimer(player, durationMinutes * 60);
+                    }
+                }
+            }, 2L, 2L);
+
+            taskRef.set(task);
+            elevatorTasks.put(player.getUniqueId(), task);
+        });
+
+        return true;
+    }
+
+    private void sendSoloCountdown(Player p, String title, float pitch) {
+        if (p == null || !p.isOnline()) return;
+        plugin.getSchedulerAdapter().runEntityTask(p, () -> {
+            String coloredTitle = ChatColor.translateAlternateColorCodes('&', title);
+            String sub = ChatColor.translateAlternateColorCodes('&', "&7Prepare for battle!");
+            p.sendTitle(coloredTitle, sub, 0, 25, 5);
+            try {
+                p.playSound(p.getLocation(), org.bukkit.Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, pitch);
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    private void startSoloMatchTimer(Player p, int seconds) {
+        java.util.concurrent.atomic.AtomicReference<org.bukkit.scheduler.BukkitTask> taskRef = new java.util.concurrent.atomic.AtomicReference<>();
+        org.bukkit.scheduler.BukkitTask task = plugin.getSchedulerAdapter().runEntityTaskTimer(p, new Runnable() {
+            int remaining = seconds;
+
+            @Override
+            public void run() {
+                if (!p.isOnline()) {
+                    org.bukkit.scheduler.BukkitTask t = taskRef.get();
+                    if (t != null)
+                        t.cancel();
+                    matchTasks.remove(p.getUniqueId());
+                    return;
+                }
+
+                if (remaining <= 0) {
+                    p.sendMessage(ChatColor.GRAY + "Solo test completed!");
+                    cleanupPendings(p);
+                    teleportToSpawn(p);
+                    org.bukkit.scheduler.BukkitTask t = taskRef.get();
+                    if (t != null)
+                        t.cancel();
+                    return;
+                }
+
+                if (remaining % 60 == 0) {
+                    int minutes = remaining / 60;
+                    p.sendMessage(ChatColor.GRAY + "[TEST MODE] " + minutes + " minutes remaining. Type /duel leave to exit.");
+                }
+
+                remaining--;
+            }
+        }, 20L, 20L);
+
+        taskRef.set(task);
+        matchTasks.put(p.getUniqueId(), task);
+    }
+
     private void cleanupPendings(Player p) {
+        if (p == null) return;
+        cleanupElevator(p);
+
         if (activeTasks.containsKey(p.getUniqueId())) {
             org.bukkit.scheduler.BukkitTask t = activeTasks.remove(p.getUniqueId());
             if (t != null)
@@ -357,6 +976,35 @@ public class DuelArenaManager {
             org.bukkit.scheduler.BukkitTask mt = matchTasks.remove(p.getUniqueId());
             if (mt != null)
                 mt.cancel();
+        }
+    }
+
+    public boolean isSoloTest(Player player) {
+        if (player == null) return false;
+        java.util.UUID opp = activeDuels.get(player.getUniqueId());
+        return opp != null && opp.equals(player.getUniqueId());
+    }
+
+    public void stopSoloTest(Player player) {
+        if (player == null) return;
+        cleanupPendings(player);
+        preDuelPlayers.remove(player.getUniqueId());
+        elevatorSpawnTargets.remove(player.getUniqueId());
+        activeDuels.remove(player.getUniqueId());
+        String arenaName = playerArenas.remove(player.getUniqueId());
+        if (arenaName != null) {
+            restoreArena(arenaName);
+        }
+        if (!player.isOnline()) {
+            markPendingSpawnReset(player.getUniqueId());
+        } else {
+            plugin.getSchedulerAdapter().runEntityTask(player, () -> {
+                player.removePotionEffect(PotionEffectType.LEVITATION);
+                player.removePotionEffect(PotionEffectType.BLINDNESS);
+                player.removePotionEffect(PotionEffectType.DARKNESS);
+                player.setFallDistance(0);
+                teleportToSpawn(player);
+            });
         }
     }
 
@@ -391,8 +1039,9 @@ public class DuelArenaManager {
                     int minutes = remaining / 60;
                     String minStr = (minutes == 1) ? "minute" : "minutes";
 
-                    String msg = ChatColor.translateAlternateColorCodes('&',
-                            "&7There are &a" + minutes + " " + minStr + "&f left before the match to end");
+                    String msg = messageManager.getMessage("match-time-remaining",
+                            "&7There are &a{minutes} {unit}&f left before the match to end",
+                            "{minutes}", String.valueOf(minutes), "{unit}", minStr);
 
                     if (p1.isOnline()) {
                         p1.sendMessage(msg);
@@ -414,35 +1063,44 @@ public class DuelArenaManager {
 
     public void endDuelInDraw(Player p1, Player p2) {
         String arenaName = playerArenas.get(p1.getUniqueId());
+        if (arenaName == null) {
+            arenaName = playerArenas.get(p2.getUniqueId());
+        }
 
         cleanupDuelData(p1, p2);
         playerArenas.remove(p1.getUniqueId());
         playerArenas.remove(p2.getUniqueId());
 
-        String title = ChatColor.translateAlternateColorCodes('&', "&7&l" + DuelGUIManager.toSmallCaps("draw"));
-        String sub = ChatColor.translateAlternateColorCodes('&', "&fNo one lost");
+        String title = messageManager.getTitle("draw-main", "&7&l" + DuelGUIManager.toSmallCaps("draw"));
+        String sub = messageManager.getTitle("draw-sub", "&fNo one lost");
 
         sendDrawUI(p1, title, sub);
         sendDrawUI(p2, title, sub);
 
-        plugin.getSchedulerAdapter().runEntityTaskLater(p1, () -> {
-            if (p1.isOnline())
+        final String finalArena = arenaName;
+        plugin.getSchedulerAdapter().runTaskLater(() -> {
+            if (p1 != null && p1.isOnline())
                 teleportToSpawn(p1);
-            if (p2.isOnline())
+            if (p2 != null && p2.isOnline())
                 teleportToSpawn(p2);
 
-            restoreArena(arenaName);
+            if (finalArena != null) {
+                restoreArena(finalArena);
+            }
         }, 60L);
     }
 
     private void sendDrawUI(Player p, String title, String sub) {
         if (p.isOnline()) {
             p.sendTitle(title, sub, 10, 60, 20);
-            p.sendMessage(ChatColor.GRAY + "Time limit reached! It's a draw.");
+            p.sendMessage(messageManager.getMessage("draw-message", "&7Time limit reached! It's a draw."));
         }
     }
 
     private void cleanupDuelData(Player p1, Player p2) {
+        cleanupElevator(p1);
+        cleanupElevator(p2);
+
         activeDuels.remove(p1.getUniqueId());
         activeDuels.remove(p2.getUniqueId());
 
@@ -484,12 +1142,11 @@ public class DuelArenaManager {
 
         String winTitle;
         if (reason == WinReason.FORFEIT) {
-            winTitle = ChatColor.translateAlternateColorCodes('&',
-                    "&4&l" + DuelGUIManager.toSmallCaps("opponent left"));
+            winTitle = messageManager.getTitle("win-forfeit-main", "&4&l" + DuelGUIManager.toSmallCaps("opponent left"));
         } else {
-            winTitle = ChatColor.translateAlternateColorCodes('&', "&a&l" + DuelGUIManager.toSmallCaps("you won"));
+            winTitle = messageManager.getTitle("win-main", "&a&l" + DuelGUIManager.toSmallCaps("you won"));
         }
-        String winSub = ChatColor.translateAlternateColorCodes('&', "&fGet your loot before the time runs out");
+        String winSub = messageManager.getTitle("win-sub", "&fGet your loot before the time runs out");
         winner.sendTitle(winTitle, winSub, 10, 60, 20);
         try {
             winner.playSound(winner.getLocation(), "ambient.cave", 1f, 1f);
@@ -516,8 +1173,9 @@ public class DuelArenaManager {
             if (remaining > 0) {
                 int mins = remaining / 60;
                 int secs = remaining % 60;
-                String actionMsg = ChatColor.translateAlternateColorCodes('&',
-                        "&7You have &d" + mins + "m " + secs + "s&7 to collect the loot");
+                String actionMsg = messageManager.getMessage("looting-actionbar",
+                        "&7You have &d{minutes}m {seconds}s&7 to collect the loot",
+                        "{minutes}", String.valueOf(mins), "{seconds}", String.valueOf(secs));
                 winner.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(actionMsg));
 
                 try {
@@ -539,79 +1197,85 @@ public class DuelArenaManager {
         winTaskRef.set(task);
         activeTasks.put(winner.getUniqueId(), task);
 
-        String loseTitle = ChatColor.translateAlternateColorCodes('&', "&4&l" + DuelGUIManager.toSmallCaps("you lose"));
-        String loseSub = ChatColor.translateAlternateColorCodes('&', "&fBetter luck next time");
+        String loseTitle = messageManager.getTitle("lose-main", "&4&l" + DuelGUIManager.toSmallCaps("you lose"));
+        String loseSub = messageManager.getTitle("lose-sub", "&fBetter luck next time");
 
         org.bukkit.Location spectatorLoc = spectatingLosers.get(loser.getUniqueId());
 
-        Runnable forceSpectator = () -> {
-            if (loser.isOnline() && !loser.isDead()) {
-                loser.setGameMode(org.bukkit.GameMode.SPECTATOR);
-                if (spectatorLoc != null) {
-                    loser.teleportAsync(spectatorLoc);
-                }
-            }
-        };
-
-        if (!loser.isDead()) {
-            plugin.getSchedulerAdapter().runEntityTask(loser, forceSpectator);
-            plugin.getSchedulerAdapter().runEntityTaskLater(loser, forceSpectator, 1L);
-            plugin.getSchedulerAdapter().runEntityTaskLater(loser, forceSpectator, 5L);
-            plugin.getSchedulerAdapter().runEntityTaskLater(loser, forceSpectator, 10L);
+        if (!loser.isOnline()) {
+            markPendingSpawnReset(loser.getUniqueId());
+            spectatingLosers.remove(loser.getUniqueId());
         } else {
-            plugin.getSchedulerAdapter().runEntityTaskLater(loser, () -> {
-                if (loser.isOnline() && loser.isDead()) {
-                    loser.spigot().respawn();
+            Runnable forceSpectator = () -> {
+                if (loser.isOnline() && !loser.isDead()) {
+                    loser.setGameMode(org.bukkit.GameMode.SPECTATOR);
+                    if (spectatorLoc != null) {
+                        loser.teleportAsync(spectatorLoc);
+                    }
                 }
+            };
+
+            if (!loser.isDead()) {
+                plugin.getSchedulerAdapter().runEntityTask(loser, forceSpectator);
                 plugin.getSchedulerAdapter().runEntityTaskLater(loser, forceSpectator, 1L);
                 plugin.getSchedulerAdapter().runEntityTaskLater(loser, forceSpectator, 5L);
                 plugin.getSchedulerAdapter().runEntityTaskLater(loser, forceSpectator, 10L);
-            }, 1L);
-        }
-
-        loser.sendTitle(loseTitle, loseSub, 10, 60, 20);
-        try {
-            loser.playSound(loser.getLocation(), "ambient.cave", 1f, 1f);
-        } catch (Exception ignored) {
-        }
-
-        final java.util.concurrent.atomic.AtomicInteger loserSeconds = new java.util.concurrent.atomic.AtomicInteger(5);
-        final java.util.concurrent.atomic.AtomicReference<org.bukkit.scheduler.BukkitTask> loseTaskRef = new java.util.concurrent.atomic.AtomicReference<>();
-
-        org.bukkit.scheduler.BukkitTask loseTask = plugin.getSchedulerAdapter().runEntityTaskTimer(loser, () -> {
-            if (!loser.isOnline()) {
-                spectatingLosers.remove(loser.getUniqueId());
-                respawnAtHub.remove(loser.getUniqueId());
-                if (loseTaskRef.get() != null)
-                    loseTaskRef.get().cancel();
-                return;
-            }
-
-            int s = loserSeconds.get();
-            if (s > 0) {
-                String actionMsg = ChatColor.translateAlternateColorCodes('&',
-                        "&7Teleporting you back in &d" + s + " seconds");
-                loser.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(actionMsg));
-                try {
-                    loser.playSound(loser.getLocation(), org.bukkit.Sound.BLOCK_NOTE_BLOCK_HAT, 1f, 1f);
-                } catch (NoSuchFieldError | IllegalArgumentException e) {
-                    loser.playSound(loser.getLocation(), org.bukkit.Sound.UI_BUTTON_CLICK, 1f, 1f);
-                }
-                loserSeconds.decrementAndGet();
             } else {
-                spectatingLosers.remove(loser.getUniqueId());
-                if (loser.isDead()) {
-                    respawnAtHub.add(loser.getUniqueId());
-                } else {
-                    teleportToSpawn(loser);
-                    loser.setGameMode(org.bukkit.GameMode.SURVIVAL);
-                }
-                loser.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(""));
-                if (loseTaskRef.get() != null)
-                    loseTaskRef.get().cancel();
+                plugin.getSchedulerAdapter().runEntityTaskLater(loser, () -> {
+                    if (loser.isOnline() && loser.isDead()) {
+                        loser.spigot().respawn();
+                    }
+                    plugin.getSchedulerAdapter().runEntityTaskLater(loser, forceSpectator, 1L);
+                    plugin.getSchedulerAdapter().runEntityTaskLater(loser, forceSpectator, 5L);
+                    plugin.getSchedulerAdapter().runEntityTaskLater(loser, forceSpectator, 10L);
+                }, 1L);
             }
-        }, 0L, 20L);
-        loseTaskRef.set(loseTask);
+
+            loser.sendTitle(loseTitle, loseSub, 10, 60, 20);
+            try {
+                loser.playSound(loser.getLocation(), "ambient.cave", 1f, 1f);
+            } catch (Exception ignored) {
+            }
+
+            final java.util.concurrent.atomic.AtomicInteger loserSeconds = new java.util.concurrent.atomic.AtomicInteger(5);
+            final java.util.concurrent.atomic.AtomicReference<org.bukkit.scheduler.BukkitTask> loseTaskRef = new java.util.concurrent.atomic.AtomicReference<>();
+
+            org.bukkit.scheduler.BukkitTask loseTask = plugin.getSchedulerAdapter().runEntityTaskTimer(loser, () -> {
+                if (!loser.isOnline()) {
+                    markPendingSpawnReset(loser.getUniqueId());
+                    spectatingLosers.remove(loser.getUniqueId());
+                    if (loseTaskRef.get() != null)
+                        loseTaskRef.get().cancel();
+                    return;
+                }
+
+                int s = loserSeconds.get();
+                if (s > 0) {
+                    String actionMsg = messageManager.getMessage("spectator-countdown-actionbar",
+                            "&7Teleporting you back in &d{seconds} seconds",
+                            "{seconds}", String.valueOf(s));
+                    loser.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(actionMsg));
+                    try {
+                        loser.playSound(loser.getLocation(), org.bukkit.Sound.BLOCK_NOTE_BLOCK_HAT, 1f, 1f);
+                    } catch (NoSuchFieldError | IllegalArgumentException e) {
+                        loser.playSound(loser.getLocation(), org.bukkit.Sound.UI_BUTTON_CLICK, 1f, 1f);
+                    }
+                    loserSeconds.decrementAndGet();
+                } else {
+                    spectatingLosers.remove(loser.getUniqueId());
+                    if (loser.isDead()) {
+                        respawnAtHub.add(loser.getUniqueId());
+                    } else {
+                        teleportToSpawn(loser);
+                        loser.setGameMode(org.bukkit.GameMode.SURVIVAL);
+                    }
+                    loser.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(""));
+                    if (loseTaskRef.get() != null)
+                        loseTaskRef.get().cancel();
+                }
+            }, 0L, 20L);
+            loseTaskRef.set(loseTask);
+        }
 
     }
 
@@ -680,22 +1344,64 @@ public class DuelArenaManager {
     }
 
     public void resetPlayer(Player player) {
+        if (player == null) return;
         teleportToSpawn(player);
         player.setGameMode(org.bukkit.GameMode.SURVIVAL);
-        if (spectatingLosers.containsKey(player.getUniqueId())) {
-            spectatingLosers.remove(player.getUniqueId());
+        spectatingLosers.remove(player.getUniqueId());
+        pendingSpawnReset.remove(player.getUniqueId());
+    }
+
+    public Location getMainSpawnLocation(org.bukkit.World fallbackWorld) {
+        if (plugin.getSpawnManager() != null) {
+            Location namedSpawn = plugin.getSpawnManager().getSpawn("spawn");
+            if (namedSpawn != null && namedSpawn.getWorld() != null) {
+                return namedSpawn;
+            }
+            Location globalSpawn = plugin.getSpawnManager().getGlobalSpawn();
+            if (globalSpawn != null && globalSpawn.getWorld() != null) {
+                return globalSpawn;
+            }
+            if (fallbackWorld != null) {
+                Location worldSpawn = plugin.getSpawnManager().getBestSpawnForWorld(fallbackWorld.getName());
+                if (worldSpawn != null && worldSpawn.getWorld() != null) {
+                    return worldSpawn;
+                }
+            }
         }
+        if (fallbackWorld != null) {
+            return fallbackWorld.getSpawnLocation();
+        }
+        if (!org.bukkit.Bukkit.getWorlds().isEmpty()) {
+            return org.bukkit.Bukkit.getWorlds().get(0).getSpawnLocation();
+        }
+        return null;
     }
 
     public void teleportToSpawn(Player player) {
-        String worldName = player.getWorld().getName();
-        Location spawn = plugin.getSpawnManager().getBestSpawnForWorld(worldName);
-        
+        if (player == null || !player.isOnline()) return;
+
+        java.util.UUID uuid = player.getUniqueId();
+        if (!pendingTeleportToSpawn.add(uuid)) {
+            return;
+        }
+
+        Location spawn = getMainSpawnLocation(player.getWorld());
+        if (spawn == null && !org.bukkit.Bukkit.getWorlds().isEmpty()) {
+            spawn = org.bukkit.Bukkit.getWorlds().get(0).getSpawnLocation();
+        }
+
         if (spawn != null) {
-            player.teleportAsync(spawn);
+            final Location targetSpawn = spawn;
+            player.teleportAsync(targetSpawn).thenAccept(success -> {
+                plugin.getSchedulerAdapter().runTaskLater(() -> {
+                    pendingTeleportToSpawn.remove(uuid);
+                }, 20L);
+            }).exceptionally(ex -> {
+                pendingTeleportToSpawn.remove(uuid);
+                return null;
+            });
         } else {
-            player.teleportAsync(org.bukkit.Bukkit.getWorlds().get(0).getSpawnLocation());
-            player.sendMessage(ChatColor.RED + "No spawn set for this world, teleported to default world spawn.");
+            pendingTeleportToSpawn.remove(uuid);
         }
     }
 

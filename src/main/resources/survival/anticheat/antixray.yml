@@ -38,14 +38,21 @@ cave-reveal-distance: 28
 anti-freecam:
   enabled: true
   # Horizontal rendering / visibility radius (in blocks) around player's true server-side location (default: 55 blocks / ~3.5 chunks)
-  distance: 55
+  distance: 50
   # Vertical downward distance (in blocks) below which subterranean deepslate caves are blocked with a Fake Deepslate floor (default: 80 blocks)
-  vertical-distance: 80
-  # Maximum Y level below which anti-freecam deepslate blockade applies per dimension
-  # Overworld: Y <= 0 (Deepslate level only, never above deepslate/surface)
-  overworld-max-y: 0
-  # Nether: Y <= 127 (below nether bedrock ceiling)
-  nether-max-y: 127
+  vertical-distance: 40
+  # Dimension settings for Anti-Freecam
+  overworld:
+    enabled: true
+    max-y: 0
+  nether:
+    # Set to false to disable anti-freecam in the Nether (like in the End)
+    enabled: false
+    max-y: 127
+  end:
+    # Completely disabled for The End dimension
+    enabled: false
+    max-y: 255
 
 # Debug logging in console
 debug: false
@@ -55,13 +62,57 @@ permissions:
   bypass: "falcon.antixray.bypass"
   admin: "falcon.antixray.admin"
 
+# ==============================================================================
+#            World Management & Multiverse Multi-World Support
+# ==============================================================================
+# Configure which worlds Anti-Xray & Anti-Freecam should protect or ignore.
+# Supports exact world names and wildcard patterns (e.g. 'spawn', 'lobby*', 'arena_*').
+worlds:
+  # List of worlds to completely EXEMPT / DISABLE Anti-Xray and Anti-Freecam in.
+  # Packets in these worlds are 100% untampered (perfect for spawns, arenas, lobbies, creative, duels).
+  disabled-worlds:
+    - "spawn"
+    - "lobby"
+    - "hub"
+    - "arena"
+    - "arena_*"
+    - "duel_*"
+    - "event_*"
+    - "creative"
+
+  # Whitelist of worlds to enable Anti-Xray in.
+  # Set to ["*"] to automatically protect all non-disabled worlds.
+  enabled-worlds:
+    - "*"
+
+  # Optional per-world custom overrides for Multiverse / custom worlds.
+  # You can control Anti-Xray and Anti-Freecam independently or together:
+  #   enabled: false       -> Disables EVERYTHING (both Anti-Xray & Anti-Freecam) in this world.
+  #   anti-xray: false     -> Disables buried ore obfuscation in this world (keeping Anti-Freecam active).
+  #   anti-freecam: false  -> Disables subterranean cave blockade in this world (keeping Anti-Xray active).
+  #   environment: "NETHER" -> Force dimension profile ('OVERWORLD', 'NETHER', 'END') for custom world names.
+  #   engine-mode: 1       -> Per-world engine mode override (1 or 2).
+  custom-world-settings:
+    example_custom_nether:
+      environment: "NETHER"
+      anti-freecam: false
+      anti-xray: true
+    example_plots:
+      enabled: false
+    example_mining:
+      environment: "OVERWORLD"
+      anti-xray: true
+      anti-freecam: false
+
 # Height limits and dimension controls
 height-limits:
   overworld:
+    enabled: true
     min-y: -64
     max-y: 319
     deepslate-transition-y: 0
   nether:
+    enabled: true
     min-y: 0
     max-y: 127
   end:

@@ -199,16 +199,45 @@ public class OcclusionRegistry {
     public boolean isNaturalSubterraneanBlock(String name) {
         if (name == null || name.isEmpty()) return true;
         if (name.contains("air")) return true;
-        if (name.equals("stone") || name.equals("deepslate") || name.equals("tuff") || name.equals("bedrock")) return true;
-        if (name.equals("andesite") || name.equals("diorite") || name.equals("granite") || name.equals("gravel") || name.equals("dirt")) return true;
-        if (name.equals("calcite") || name.equals("smooth_basalt") || name.equals("dripstone_block") || name.equals("pointed_dripstone")) return true;
-        if (name.equals("sculk") || name.equals("sculk_vein") || name.equals("sculk_catalyst") || name.equals("sculk_sensor") || name.equals("sculk_shrieker")) return true;
-        if (name.equals("netherrack") || name.equals("basalt") || name.equals("blackstone") || name.equals("soul_sand") || name.equals("soul_soil") || name.equals("magma_block")) return true;
-        if (name.equals("end_stone")) return true;
-        if (name.contains("ore") || name.equals("ancient_debris")) return true;
-        if (name.contains("raw_") && name.contains("block")) return true;
-        if (name.equals("lava") || name.equals("water")) return true;
-        return false;
+
+        // Player storage / containers / utility blocks (preserve player bases)
+        if (name.contains("chest") || name.contains("barrel") || name.contains("shulker")
+                || name.contains("hopper") || name.contains("dropper") || name.contains("dispenser")
+                || name.contains("furnace") || name.contains("smoker") || name.contains("brewing")
+                || name.contains("anvil") || name.contains("beacon") || name.contains("conduit")
+                || name.contains("enchanting") || name.contains("bookshelf") || name.contains("lectern")
+                || name.contains("crafting") || name.contains("smithing") || name.contains("grindstone")
+                || name.contains("stonecutter") || name.contains("loom") || name.contains("cartography")
+                || name.contains("bell") || name.contains("respawn_anchor") || name.contains("lodestone")
+                || name.contains("vault") || name.contains("crafter") || name.contains("bed")
+                || name.contains("banner") || name.contains("sign") || name.contains("decorated_pot")
+                || name.contains("spawner")) {
+            return false;
+        }
+
+        // Redstone & mechanical blocks
+        if (name.contains("redstone") || name.contains("repeater") || name.contains("comparator")
+                || name.contains("piston") || name.contains("observer") || name.contains("target")
+                || name.contains("lever") || name.contains("button") || name.contains("pressure_plate")
+                || name.contains("tripwire") || name.contains("daylight") || name.contains("tnt")
+                || name.contains("rail") || name.contains("scaffolding") || name.contains("ladder")
+                || name.contains("chain") || name.contains("iron_bars") || name.contains("lightning_rod")) {
+            return false;
+        }
+
+        // Crafted construction blocks (planks, glazed terracotta, concrete, wool, glass, doors, etc.)
+        if (name.contains("planks") || name.contains("glass") || name.contains("wool")
+                || name.contains("concrete") || name.contains("glazed") || name.contains("door")
+                || name.contains("trapdoor") || name.contains("fence") || name.contains("gate")
+                || name.contains("carpet") || name.contains("bricks") && (name.contains("stone_brick") || name.contains("mud_brick") || name.contains("prismarine") || name.contains("nether_brick") || name.contains("quartz"))) {
+            return false;
+        }
+
+        // EVERYTHING else underground is natural world generation:
+        // Stone, deepslate, tuff, calcite, andesite, diorite, granite, dirt, gravel, clay, sand, mud,
+        // lush caves (moss, cave vines, glow berries, azalea, dripleaf, spore blossoms, roots, glow lichen),
+        // amethyst geodes, dripstones, sculk, netherrack, basalt, blackstone, ores, water, lava, etc.
+        return true;
     }
 
     public boolean isNaturalRockOrAir(int stateId) {

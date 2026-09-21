@@ -16,10 +16,12 @@ public class AntiXrayConfig {
     private boolean enabled = true;
     private int engineMode = 1;
 
+    private boolean overworldEnabled = true;
     private int overworldMinY = -64;
     private int overworldMaxY = 319;
     private int deepslateTransitionY = 0;
 
+    private boolean netherEnabled = true;
     private int netherMinY = 0;
     private int netherMaxY = 127;
 
@@ -33,6 +35,9 @@ public class AntiXrayConfig {
 
     // Anti-Freecam
     private boolean antiFreecamEnabled = true;
+    private boolean antiFreecamOverworldEnabled = true;
+    private boolean antiFreecamNetherEnabled = false;
+    private boolean antiFreecamEndEnabled = false;
     private int antiFreecamDistance = 55;
     private int antiFreecamVerticalDistance = 80;
     private boolean antiFreecamFillCaves = true;
@@ -43,6 +48,12 @@ public class AntiXrayConfig {
 
     private String bypassPermission = "falcon.antixray.bypass";
     private String adminPermission = "falcon.antixray.admin";
+
+    private final Set<String> disabledWorlds = new HashSet<>();
+    private final List<String> disabledWorldPatterns = new ArrayList<>();
+    private final Set<String> enabledWorlds = new HashSet<>();
+    private final List<String> enabledWorldPatterns = new ArrayList<>();
+    private final Map<String, CustomWorldConfig> customWorldSettings = new HashMap<>();
 
     private final Set<String> hiddenBlocks = new HashSet<>();
     private final List<String> overworldReplacements = new ArrayList<>();
@@ -71,10 +82,12 @@ public class AntiXrayConfig {
         this.enabled = config.getBoolean("enabled", true);
         this.engineMode = config.getInt("engine-mode", 1);
 
+        this.overworldEnabled = config.getBoolean("height-limits.overworld.enabled", true);
         this.overworldMinY = config.getInt("height-limits.overworld.min-y", -64);
         this.overworldMaxY = config.getInt("height-limits.overworld.max-y", 319);
         this.deepslateTransitionY = config.getInt("height-limits.overworld.deepslate-transition-y", 0);
 
+        this.netherEnabled = config.getBoolean("height-limits.nether.enabled", true);
         this.netherMinY = config.getInt("height-limits.nether.min-y", 0);
         this.netherMaxY = config.getInt("height-limits.nether.max-y", 127);
 
@@ -87,16 +100,76 @@ public class AntiXrayConfig {
         this.debug = config.getBoolean("debug", false);
 
         this.antiFreecamEnabled = config.getBoolean("anti-freecam.enabled", true);
+        this.antiFreecamOverworldEnabled = config.getBoolean("anti-freecam.overworld.enabled", config.getBoolean("anti-freecam.overworld-enabled", true));
+        this.antiFreecamNetherEnabled = config.getBoolean("anti-freecam.nether.enabled", config.getBoolean("anti-freecam.nether-enabled", config.getBoolean("anti-freecam.nether.enable", false)));
+        this.antiFreecamEndEnabled = config.getBoolean("anti-freecam.end.enabled", config.getBoolean("anti-freecam.end-enabled", false));
         this.antiFreecamDistance = config.getInt("anti-freecam.distance", 55);
         this.antiFreecamVerticalDistance = config.getInt("anti-freecam.vertical-distance", 80);
         this.antiFreecamFillCaves = config.getBoolean("anti-freecam.fill-caves", false);
-        this.antiFreecamOverworldMaxY = config.getInt("anti-freecam.overworld-max-y", 0);
-        this.antiFreecamNetherMaxY = config.getInt("anti-freecam.nether-max-y", 127);
-        this.antiFreecamEndMaxY = config.getInt("anti-freecam.end-max-y", 255);
+        this.antiFreecamOverworldMaxY = config.getInt("anti-freecam.overworld.max-y", config.getInt("anti-freecam.overworld-max-y", 0));
+        this.antiFreecamNetherMaxY = config.getInt("anti-freecam.nether.max-y", config.getInt("anti-freecam.nether-max-y", 127));
+        this.antiFreecamEndMaxY = config.getInt("anti-freecam.end.max-y", config.getInt("anti-freecam.end-max-y", 255));
         this.antiFreecamUpdateThresholdBlocks = config.getInt("anti-freecam.update-threshold-blocks", 6);
 
         this.bypassPermission = config.getString("permissions.bypass", "falcon.antixray.bypass");
         this.adminPermission = config.getString("permissions.admin", "falcon.antixray.admin");
+
+        // Parse World Exemptions & Whitelist
+        disabledWorlds.clear();
+        disabledWorldPatterns.clear();
+        List<String> disabledList = config.getStringList("worlds.disabled-worlds");
+        if (disabledList.isEmpty()) disabledList = config.getStringList("disabled-worlds");
+        if (disabledList.isEmpty()) disabledList = config.getStringList("worlds.exempt-worlds");
+        if (disabledList.isEmpty()) disabledList = config.getStringList("exempt-worlds");
+        for (String s : disabledList) {
+            String lower = s.trim().toLowerCase();
+            if (lower.contains("*")) {
+                disabledWorldPatterns.add(lower);
+            } else {
+                disabledWorlds.add(lower);
+            }
+        }
+
+        enabledWorlds.clear();
+        enabledWorldPatterns.clear();
+        List<String> enabledList = config.getStringList("worlds.enabled-worlds");
+        if (enabledList.isEmpty()) enabledList = config.getStringList("enabled-worlds");
+        if (enabledList.isEmpty()) {
+            enabledWorlds.add("*");
+        } else {
+            for (String s : enabledList) {
+                String lower = s.trim().toLowerCase();
+                if (lower.contains("*")) {
+                    enabledWorldPatterns.add(lower);
+                } else {
+                    enabledWorlds.add(lower);
+                }
+            }
+        }
+
+        customWorldSettings.clear();
+        org.bukkit.configuration.ConfigurationSection customSec = config.getConfigurationSection("worlds.custom-world-settings");
+        if (customSec == null) customSec = config.getConfigurationSection("custom-world-settings");
+        if (customSec != null) {
+            for (String worldKey : customSec.getKeys(false)) {
+                String keyLower = worldKey.toLowerCase();
+                Boolean worldEn = customSec.contains(worldKey + ".enabled") ? customSec.getBoolean(worldKey + ".enabled") : null;
+                String envStr = customSec.getString(worldKey + ".environment", null);
+                Integer wType = null;
+                if (envStr != null) {
+                    String envLower = envStr.toLowerCase();
+                    if (envLower.contains("nether")) wType = 1;
+                    else if (envLower.contains("end")) wType = 2;
+                    else if (envLower.contains("overworld") || envLower.contains("normal")) wType = 0;
+                }
+                Boolean axEn = customSec.contains(worldKey + ".anti-xray") ? customSec.getBoolean(worldKey + ".anti-xray") :
+                        (customSec.contains(worldKey + ".antixray") ? customSec.getBoolean(worldKey + ".antixray") : null);
+                Boolean afEn = customSec.contains(worldKey + ".anti-freecam") ? customSec.getBoolean(worldKey + ".anti-freecam") :
+                        (customSec.contains(worldKey + ".antifreecam") ? customSec.getBoolean(worldKey + ".antifreecam") : null);
+                Integer engMode = customSec.contains(worldKey + ".engine-mode") ? customSec.getInt(worldKey + ".engine-mode") : null;
+                customWorldSettings.put(keyLower, new CustomWorldConfig(worldEn, wType, axEn, afEn, engMode));
+            }
+        }
 
         hiddenBlocks.clear();
         List<String> hiddenList = config.getStringList("hidden-blocks");
@@ -212,8 +285,25 @@ public class AntiXrayConfig {
         return netherMaxY;
     }
 
+    public boolean isOverworldEnabled() {
+        return overworldEnabled;
+    }
+
+    public boolean isNetherEnabled() {
+        return netherEnabled;
+    }
+
     public boolean isEndEnabled() {
         return endEnabled;
+    }
+
+    public boolean isNetherWorld(org.bukkit.World world) {
+        if (world == null) return false;
+        if (world.getEnvironment() == org.bukkit.World.Environment.NETHER) return true;
+        String name = world.getName().toLowerCase();
+        return name.equals("nether") || name.equals("world_nether")
+                || name.endsWith("_nether") || name.contains("_nether_")
+                || name.contains("dim-1");
     }
 
     public boolean isEndWorld(org.bukkit.World world) {
@@ -226,12 +316,148 @@ public class AntiXrayConfig {
                 || name.contains("the-end") || name.contains("dim1");
     }
 
-    public boolean isWorldEnabled(org.bukkit.World world) {
-        if (world == null) return false;
+    private boolean matchesPattern(String text, String pattern) {
+        if (pattern == null || text == null) return false;
+        if (pattern.equals("*")) return true;
+        if (pattern.startsWith("*") && pattern.endsWith("*") && pattern.length() > 2) {
+            return text.contains(pattern.substring(1, pattern.length() - 1));
+        }
+        if (pattern.endsWith("*")) {
+            return text.startsWith(pattern.substring(0, pattern.length() - 1));
+        }
+        if (pattern.startsWith("*")) {
+            return text.endsWith(pattern.substring(1));
+        }
+        if (pattern.contains("*")) {
+            String regex = "\\Q" + pattern.replace("*", "\\E.*\\Q") + "\\E";
+            return text.matches(regex);
+        }
+        return text.equalsIgnoreCase(pattern);
+    }
+
+    public boolean isWorldExempt(String worldName) {
+        if (worldName == null) return false;
+        String name = worldName.toLowerCase();
+        if (disabledWorlds.contains(name)) return true;
+        for (String pattern : disabledWorldPatterns) {
+            if (matchesPattern(name, pattern)) return true;
+        }
+        return false;
+    }
+
+    public boolean isWorldWhitelisted(String worldName) {
+        if (enabledWorlds.isEmpty() || enabledWorlds.contains("*")) return true;
+        String name = worldName.toLowerCase();
+        if (enabledWorlds.contains(name)) return true;
+        for (String pattern : enabledWorldPatterns) {
+            if (matchesPattern(name, pattern)) return true;
+        }
+        return false;
+    }
+
+    public int getWorldType(org.bukkit.World world) {
+        if (world == null) return 0;
+        String name = world.getName().toLowerCase();
+        CustomWorldConfig override = customWorldSettings.get(name);
+        if (override != null && override.getWorldType() != null) {
+            return override.getWorldType();
+        }
+        if (isNetherWorld(world)) {
+            return 1;
+        }
         if (isEndWorld(world)) {
-            return endEnabled;
+            return 2;
+        }
+        return 0;
+    }
+
+    public boolean isWorldEnabled(org.bukkit.World world) {
+        if (!enabled || world == null) return false;
+        String name = world.getName().toLowerCase();
+
+        // 1. Check custom override if present
+        CustomWorldConfig override = customWorldSettings.get(name);
+        if (override != null && override.getEnabled() != null) {
+            if (!override.getEnabled()) return false;
+        }
+
+        // 2. Check world exemption (disabled worlds)
+        if (isWorldExempt(name)) {
+            return false;
+        }
+
+        // 3. Check enabled worlds whitelist
+        if (!isWorldWhitelisted(name)) {
+            return false;
+        }
+
+        // 4. Check dimension default enablement
+        int worldType = getWorldType(world);
+        if (worldType == 1) return netherEnabled;
+        if (worldType == 2) return endEnabled;
+        return overworldEnabled;
+    }
+
+    public boolean isAntiXrayEnabled(org.bukkit.World world) {
+        if (!enabled || world == null || !isWorldEnabled(world)) return false;
+        String name = world.getName().toLowerCase();
+        CustomWorldConfig override = customWorldSettings.get(name);
+        if (override != null && override.getAntiXray() != null) {
+            return override.getAntiXray();
         }
         return true;
+    }
+
+    public boolean isAntiFreecamEnabled(org.bukkit.World world) {
+        if (!antiFreecamEnabled || world == null || !isWorldEnabled(world)) return false;
+        String name = world.getName().toLowerCase();
+        CustomWorldConfig override = customWorldSettings.get(name);
+        if (override != null && override.getAntiFreecam() != null) {
+            return override.getAntiFreecam();
+        }
+        int worldType = getWorldType(world);
+        return isAntiFreecamEnabledForDimension(worldType);
+    }
+
+    public int getEngineMode(org.bukkit.World world) {
+        if (world != null) {
+            String name = world.getName().toLowerCase();
+            CustomWorldConfig override = customWorldSettings.get(name);
+            if (override != null && override.getEngineMode() != null) {
+                return override.getEngineMode();
+            }
+        }
+        return engineMode;
+    }
+
+    public boolean isAntiFreecamEnabledForDimension(int worldType) {
+        if (!antiFreecamEnabled) return false;
+        if (worldType == 0) return antiFreecamOverworldEnabled;
+        if (worldType == 1) return antiFreecamNetherEnabled;
+        if (worldType == 2) return antiFreecamEndEnabled;
+        return false;
+    }
+
+    public boolean isAntiFreecamOverworldEnabled() {
+        return antiFreecamOverworldEnabled;
+    }
+
+    public boolean isAntiFreecamNetherEnabled() {
+        return antiFreecamNetherEnabled;
+    }
+
+    public void setAntiFreecamNetherEnabled(boolean antiFreecamNetherEnabled) {
+        this.antiFreecamNetherEnabled = antiFreecamNetherEnabled;
+        if (config != null) {
+            config.set("anti-freecam.nether.enabled", antiFreecamNetherEnabled);
+            try {
+                config.save(file);
+            } catch (Exception ignored) {}
+        }
+    }
+
+    public boolean isAntiFreecamEndEnabled() {
+        return antiFreecamEndEnabled;
     }
 
     public int getEndMinY() {
@@ -332,5 +558,53 @@ public class AntiXrayConfig {
 
     public List<String> getEndReplacements() {
         return Collections.unmodifiableList(endReplacements);
+    }
+
+    public Set<String> getDisabledWorlds() {
+        return Collections.unmodifiableSet(disabledWorlds);
+    }
+
+    public Set<String> getEnabledWorlds() {
+        return Collections.unmodifiableSet(enabledWorlds);
+    }
+
+    public Map<String, CustomWorldConfig> getCustomWorldSettings() {
+        return Collections.unmodifiableMap(customWorldSettings);
+    }
+
+    public static class CustomWorldConfig {
+        private final Boolean enabled;
+        private final Integer worldType; // 0=Overworld, 1=Nether, 2=End, null=auto
+        private final Boolean antiXray;
+        private final Boolean antiFreecam;
+        private final Integer engineMode;
+
+        public CustomWorldConfig(Boolean enabled, Integer worldType, Boolean antiXray, Boolean antiFreecam, Integer engineMode) {
+            this.enabled = enabled;
+            this.worldType = worldType;
+            this.antiXray = antiXray;
+            this.antiFreecam = antiFreecam;
+            this.engineMode = engineMode;
+        }
+
+        public Boolean getEnabled() {
+            return enabled;
+        }
+
+        public Integer getWorldType() {
+            return worldType;
+        }
+
+        public Boolean getAntiXray() {
+            return antiXray;
+        }
+
+        public Boolean getAntiFreecam() {
+            return antiFreecam;
+        }
+
+        public Integer getEngineMode() {
+            return engineMode;
+        }
     }
 }
