@@ -33,11 +33,19 @@ public class AntiCheatListener implements Listener {
     public void onPlayerMove(PlayerMoveEvent event) {
         if (!manager.isEnabled()) return;
 
+        Player player = event.getPlayer();
+        if (player.getGameMode() == org.bukkit.GameMode.CREATIVE 
+                || player.getGameMode() == org.bukkit.GameMode.SPECTATOR 
+                || player.getAllowFlight() 
+                || player.isFlying() 
+                || manager.hasBypass(player)) {
+            return;
+        }
+
         Location from = event.getFrom();
         Location to = event.getTo();
         if (to == null) return;
 
-        Player player = event.getPlayer();
         PlayerData data = manager.getOrCreatePlayerData(player);
 
         // Record look sample for rotation history and ping-compensated raycasting
@@ -47,8 +55,8 @@ public class AntiCheatListener implements Listener {
             return;
         }
 
-        // If movement is across worlds or large distance (teleport), reset movement state without running cross-region checks
-        if (from.getWorld() != to.getWorld() || from.distanceSquared(to) > 36.0) {
+        // If movement is across worlds or large distance (teleport), or not owned by current region, reset movement state without running cross-region checks
+        if (from.getWorld() != to.getWorld() || !com.falconcore.anticheat.data.PlayerData.isRegionSafe(to) || !com.falconcore.anticheat.data.PlayerData.isRegionSafe(from) || from.distanceSquared(to) > 36.0) {
             data.resetMovementState(to);
             return;
         }
@@ -74,17 +82,20 @@ public class AntiCheatListener implements Listener {
         PlayerData data = manager.getPlayerData(player.getUniqueId());
         if (data != null) {
             org.bukkit.util.Vector vel = event.getVelocity();
-            int ticks = manager.getVelocityGraceTicks();
             double speedXZ = (vel != null) ? Math.hypot(vel.getX(), vel.getZ()) : 0.0;
-            if (vel != null && vel.getY() > 0.35) {
-                ticks = Math.max(ticks, (int) (vel.getY() * 35) + 12);
+            double speedY = (vel != null) ? Math.abs(vel.getY()) : 0.0;
+
+            int ticks = Math.max(manager.getVelocityGraceTicks(), 35);
+            if (speedXZ > 0.2) {
+                ticks = Math.max(ticks, (int) (speedXZ * 35) + 25);
+            }
+            if (speedY > 0.2) {
+                ticks = Math.max(ticks, (int) (speedY * 35) + 25);
                 data.setWindBoostTicks(ticks);
             }
-            if (speedXZ > 0.35) {
-                ticks = Math.max(ticks, (int) (speedXZ * 30) + 12);
-                data.setLungeTicks(ticks);
-            }
+            data.setLungeTicks(ticks);
             data.setVelocityTicks(ticks, vel);
+            data.setHadVelocityThisAir(true);
         }
     }
 
@@ -95,17 +106,21 @@ public class AntiCheatListener implements Listener {
             PlayerData data = manager.getPlayerData(player.getUniqueId());
             if (data != null) {
                 EntityDamageEvent.DamageCause cause = event.getCause();
+                int ticks = 35;
                 if (cause == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION ||
                     cause == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION) {
-                    data.setExplosionTicks(manager.getVelocityGraceTicks());
-                    data.setWindBoostTicks(35);
+                    data.setExplosionTicks(60);
+                    data.setWindBoostTicks(60);
+                    ticks = 60;
                 } else if (cause == EntityDamageEvent.DamageCause.ENTITY_ATTACK ||
                            cause == EntityDamageEvent.DamageCause.ENTITY_SWEEP_ATTACK ||
                            cause == EntityDamageEvent.DamageCause.PROJECTILE ||
                            cause == EntityDamageEvent.DamageCause.THORNS ||
                            cause == EntityDamageEvent.DamageCause.FALL) {
-                    data.setDamageTicks(20);
+                    ticks = 35;
                 }
+                data.setDamageTicks(Math.max(data.getDamageTicks(), ticks));
+                data.setHadVelocityThisAir(true);
             }
         }
     }
@@ -342,7 +357,28 @@ public class AntiCheatListener implements Listener {
         if (event.getEntity() instanceof Player victim) {
             PlayerData victimData = manager.getPlayerData(victim.getUniqueId());
             if (victimData != null) {
-                victimData.setDamageTicks(20);
+                int kbLevel = 0;
+                if (event.getDamager() instanceof Player damager) {
+                    org.bukkit.inventory.ItemStack mainHand = damager.getInventory().getItemInMainHand();
+                    if (mainHand != null && mainHand.getType() != org.bukkit.Material.AIR) {
+                        kbLevel = mainHand.getEnchantmentLevel(org.bukkit.enchantments.Enchantment.KNOCKBACK);
+                    }
+                    if (damager.isSprinting()) {
+                        kbLevel += 1;
+                    }
+                } else if (event.getDamager() instanceof org.bukkit.entity.Projectile proj) {
+                    if (proj.getShooter() instanceof Player shooter) {
+                        org.bukkit.inventory.ItemStack bow = shooter.getInventory().getItemInMainHand();
+                        if (bow != null && bow.getType() != org.bukkit.Material.AIR) {
+                            kbLevel = bow.getEnchantmentLevel(org.bukkit.enchantments.Enchantment.PUNCH);
+                        }
+                    }
+                }
+
+                int graceTicks = 35 + (kbLevel * 25);
+                victimData.setDamageTicks(Math.max(victimData.getDamageTicks(), graceTicks));
+                victimData.setLungeTicks(Math.max(victimData.getLungeTicks(), graceTicks));
+                victimData.setHadVelocityThisAir(true);
             }
         }
 

@@ -20,11 +20,13 @@ public class PlayerNameCacheListener implements Listener {
     
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
+        playerNameCache.registerPlayer(event.getPlayer().getUniqueId(), event.getPlayer().getName());
         playerNameCache.addRecentPlayer(event.getPlayer().getName());
     }
     
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
+        playerNameCache.registerPlayer(event.getPlayer().getUniqueId(), event.getPlayer().getName());
         playerNameCache.addRecentPlayer(event.getPlayer().getName());
     }
 }

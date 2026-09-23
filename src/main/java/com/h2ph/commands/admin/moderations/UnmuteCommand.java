@@ -48,17 +48,13 @@ public class UnmuteCommand implements CommandExecutor, TabCompleter {
         }
 
         String targetName = args[1];
-        Player target = Bukkit.getPlayer(targetName);
-        UUID targetUUID;
-        String finalTargetName;
-
-        if (target != null) {
-            targetUUID = target.getUniqueId();
-            finalTargetName = target.getName();
-        } else {
-            targetUUID = Bukkit.getOfflinePlayer(targetName).getUniqueId();
-            finalTargetName = targetName;
+        OfflinePlayer targetPlayer = plugin.getPlayerNameCache().getOfflinePlayer(targetName);
+        if (targetPlayer == null) {
+            sender.sendMessage(ChatColor.RED + "Could not find player data for " + targetName);
+            return true;
         }
+        UUID targetUUID = targetPlayer.getUniqueId();
+        String finalTargetName = targetPlayer.getName() != null ? targetPlayer.getName() : targetName;
 
         PlayerData data = plugin.getPlayerDataManager().get(targetUUID);
         if (data == null) {
@@ -98,10 +94,11 @@ public class UnmuteCommand implements CommandExecutor, TabCompleter {
             ((Player) sender).spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(adminMsg));
         }
 
-        if (target != null && target.isOnline()) {
+        if (targetPlayer.isOnline() && targetPlayer.getPlayer() != null) {
+            Player onlineTarget = targetPlayer.getPlayer();
             String targetMsg = ChatColor.translateAlternateColorCodes('&', "&7You have been " + typeStr + "unmuted.");
-            target.sendMessage(targetMsg);
-            target.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(targetMsg));
+            onlineTarget.sendMessage(targetMsg);
+            onlineTarget.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(targetMsg));
         }
 
         return true;

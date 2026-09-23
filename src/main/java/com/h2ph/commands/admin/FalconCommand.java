@@ -94,8 +94,8 @@ public class FalconCommand implements CommandExecutor, TabCompleter {
                     return true;
                 }
                 String targetName = args[1];
-                OfflinePlayer target = Bukkit.getOfflinePlayer(targetName);
-                if (target == null || target.getName() == null) {
+                OfflinePlayer target = plugin.getPlayerNameCache().getOfflinePlayer(targetName);
+                if (target == null) {
                     player.sendMessage("§cPlayer not found.");
                     return true;
                 }
@@ -977,9 +977,9 @@ public class FalconCommand implements CommandExecutor, TabCompleter {
 
         plugin.getSchedulerAdapter().runTaskAsync(() -> {
             try {
-                OfflinePlayer target = Bukkit.getOfflinePlayer(targetName);
+                OfflinePlayer target = plugin.getPlayerNameCache().getOfflinePlayer(targetName);
                 plugin.getSchedulerAdapter().runTask(() -> {
-                    if (!target.hasPlayedBefore() && !target.isOnline()) {
+                    if (target == null) {
                         player.sendMessage(ChatColor.RED + "That user does not exist.");
                         player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_VILLAGER_NO, 1f, 1f);
                         return;

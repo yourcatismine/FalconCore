@@ -178,8 +178,11 @@ public class DuelQueueManager implements Listener {
         ItemStack confirmItem;
         if (isInQueue) {
             long waitTime = (System.currentTimeMillis() - queuedPlayers.get(uuid)) / 1000;
+            long mins = waitTime / 60;
+            long secs = waitTime % 60;
+            String formattedWait = String.format("%02d:%02d", mins, secs);
             confirmItem = createItem(Material.LIME_STAINED_GLASS_PANE, "&aѕᴇᴀʀᴄʜɪɴɢ...",
-                    "&7Searching for &f" + waitTime + "s",
+                    "&7Time elapsed: &f" + formattedWait,
                     "&cClick to leave queue");
         } else {
             confirmItem = createItem(Material.GREEN_STAINED_GLASS_PANE, "&aᴄᴏɴꜰɪʀᴍ",
@@ -249,30 +252,17 @@ public class DuelQueueManager implements Listener {
             }
 
             long elapsed = (System.currentTimeMillis() - startTime) / 1000;
-            String actionBarMsg;
+            long minutes = elapsed / 60;
+            long seconds = elapsed % 60;
+            String formattedTime = String.format("%02d:%02d", minutes, seconds);
 
-            if (elapsed >= 30) {
-                String failMsg = mm.getMessage("queue-timeout-actionbar", "&cUnable to find players to match");
-                player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
-                        new net.md_5.bungee.api.chat.TextComponent(failMsg));
-
-                try {
-                    player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_VILLAGER_NO, 1f, 1f);
-                } catch (Exception ignored) {
-                }
-
-                leaveQueue(player);
-                return;
-            } else {
-                String estimatedTime = calculateEstimatedWait(queuedPlayers.size());
-                actionBarMsg = mm.getMessage("queue-searching-actionbar",
-                        "&7Searching for a Casual Duel... Estimated Time:&b {time}",
-                        "{time}", estimatedTime);
-            }
+            String actionBarMsg = mm.getMessage("queue-searching-actionbar",
+                    "&7Searching for a Casual Duel... &b{time}",
+                    "{time}", formattedTime);
 
             player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
-                    new net.md_5.bungee.api.chat.TextComponent(actionBarMsg));
-        }, 0L, 40L);
+                    new net.md_5.bungee.api.chat.TextComponent(ChatColor.translateAlternateColorCodes('&', actionBarMsg)));
+        }, 0L, 20L);
 
         searchTasks.put(player.getUniqueId(), searchTask);
 

@@ -63,6 +63,7 @@ public class JesusCheck extends Check {
 
         if (feet.getType() == Material.BUBBLE_COLUMN || below.getType() == Material.BUBBLE_COLUMN ||
             fromFeet.getType() == Material.BUBBLE_COLUMN || fromBelow.getType() == Material.BUBBLE_COLUMN) {
+            decayBuffers(uuid);
             return;
         }
 
@@ -71,10 +72,19 @@ public class JesusCheck extends Check {
             return;
         }
 
-        boolean standingOnSolidTo = isStandingOnSolidBlock(to);
-        boolean standingOnSolidFrom = isStandingOnSolidBlock(from);
+        // If player is standing on or near solid blocks within 2.8 blocks below / around, it's shallow water, a puddle, or bank
+        if (isStandingOnSolidBlock(to) || isStandingOnSolidBlock(from) ||
+            hasSolidGroundNearbyOrUnderneath(to, 2.8) || hasSolidGroundNearbyOrUnderneath(from, 2.8)) {
+            decayBuffers(uuid);
+            return;
+        }
 
-        if (standingOnSolidTo && standingOnSolidFrom) {
+        // Active velocity, slime/bed bounce, or potion effects that affect water movement
+        if (data.getSlimeBounceTicks() > 0 || data.getBedBounceTicks() > 0 ||
+            data.getVelocityTicks() > 0 || data.getDamageTicks() > 0 || data.getWindBoostTicks() > 0 ||
+            data.getDepthStriderLevel() > 0 ||
+            player.hasPotionEffect(PotionEffectType.DOLPHINS_GRACE) ||
+            player.hasPotionEffect(PotionEffectType.CONDUIT_POWER)) {
             decayBuffers(uuid);
             return;
         }
@@ -83,15 +93,19 @@ public class JesusCheck extends Check {
         double deltaXZ = data.getDeltaXZ();
 
         boolean nearStepUp = hasStepUpBlockNearby(to) || hasStepUpBlockNearby(from);
+        if (nearStepUp) {
+            decayBuffers(uuid);
+            return;
+        }
 
-        if (typeBEnabled && !standingOnSolidFrom && !nearStepUp) {
+        if (typeBEnabled) {
             boolean fromOverLiquid = fromFeet.isLiquid() || fromBelow.isLiquid() || data.isInWater() || data.isInLava();
-            boolean launchingOffLiquid = fromOverLiquid && deltaY >= 0.18 && deltaXZ > 0.18;
-            if (launchingOffLiquid && !player.hasPotionEffect(PotionEffectType.DOLPHINS_GRACE) && data.getSlimeBounceTicks() <= 0) {
+            boolean launchingOffLiquid = fromOverLiquid && deltaY >= 0.20 && deltaXZ > 0.18;
+            if (launchingOffLiquid) {
                 int jumpBuf = liquidJumpBuffer.getOrDefault(uuid, 0) + 1;
                 liquidJumpBuffer.put(uuid, jumpBuf);
 
-                if (jumpBuf >= 2) {
+                if (jumpBuf >= 4) {
                     fail(player, data, "Type B (Liquid Jump)", typeBVlIncrement,
                             String.format("Illegal jump off open liquid (dY=%.4f, dXZ=%.3f, liquid=%s, jumpBuf=%d)",
                                     deltaY, deltaXZ, fromBelow.getType().name(), jumpBuf));
@@ -104,13 +118,13 @@ public class JesusCheck extends Check {
             }
         }
 
-        if (typeAEnabled && !standingOnSolidTo && !nearStepUp) {
-            boolean walkingOnWater = (feet.isLiquid() || below.isLiquid()) && deltaY >= -0.005 && deltaXZ > 0.12 && !player.isSwimming();
+        if (typeAEnabled) {
+            boolean walkingOnWater = (feet.isLiquid() || below.isLiquid()) && deltaY >= -0.005 && deltaXZ > 0.14 && !player.isSwimming();
             if (walkingOnWater) {
                 int walkBuf = liquidHoverBuffer.getOrDefault(uuid, 0) + 1;
                 liquidHoverBuffer.put(uuid, walkBuf);
 
-                if (walkBuf > 3) {
+                if (walkBuf >= 6) {
                     fail(player, data, "Type A (Liquid Walk)", typeAVlIncrement,
                             String.format("dY=%.4f, dXZ=%.3f, liquid=%s, buffer=%d",
                                     deltaY, deltaXZ, below.getType().name(), walkBuf));
@@ -123,13 +137,13 @@ public class JesusCheck extends Check {
             }
         }
 
-        if (typeCEnabled && !standingOnSolidTo && !nearStepUp) {
-            boolean bouncingOnLiquid = (below.isLiquid() || fromBelow.isLiquid() || feet.isLiquid()) && deltaXZ > 0.22 && (deltaY > 0.05 || Math.abs(deltaY) < 0.08);
-            if (bouncingOnLiquid && !player.hasPotionEffect(PotionEffectType.DOLPHINS_GRACE)) {
+        if (typeCEnabled) {
+            boolean bouncingOnLiquid = (below.isLiquid() || fromBelow.isLiquid() || feet.isLiquid()) && deltaXZ > 0.24 && (deltaY > 0.08 || Math.abs(deltaY) < 0.05);
+            if (bouncingOnLiquid) {
                 int hopBuf = liquidHopBuffer.getOrDefault(uuid, 0) + 1;
                 liquidHopBuffer.put(uuid, hopBuf);
 
-                if (hopBuf >= 2) {
+                if (hopBuf >= 6) {
                     fail(player, data, "Type C (Liquid Hopping)", typeCVlIncrement,
                             String.format("dY=%.4f, dXZ=%.3f, liquid=%s, hopBuf=%d",
                                     deltaY, deltaXZ, below.getType().name(), hopBuf));
@@ -152,6 +166,33 @@ public class JesusCheck extends Check {
                 }
             }
         } catch (Throwable ignored) {}
+        return false;
+    }
+
+    private boolean hasSolidGroundNearbyOrUnderneath(Location loc, double maxDepth) {
+        if (loc.getWorld() == null || !PlayerData.isRegionSafe(loc)) return true;
+        int bx = loc.getBlockX();
+        int by = loc.getBlockY();
+        int bz = loc.getBlockZ();
+        int minDepth = (int) Math.ceil(maxDepth);
+
+        for (int x = bx - 1; x <= bx + 1; x++) {
+            for (int y = by - minDepth; y <= by + 2; y++) {
+                for (int z = bz - 1; z <= bz + 1; z++) {
+                    Block b = loc.getWorld().getBlockAt(x, y, z);
+                    Material mat = b.getType();
+                    if (mat.isAir() || mat == Material.WATER || mat == Material.LAVA) continue;
+
+                    if (mat.isSolid() || mat == Material.BUBBLE_COLUMN || mat == Material.LILY_PAD ||
+                        mat == Material.SCAFFOLDING || mat == Material.SLIME_BLOCK || mat == Material.HONEY_BLOCK ||
+                        mat.name().contains("STAIRS") || mat.name().contains("SLAB") || mat.name().contains("TRAPDOOR") ||
+                        mat.name().contains("CARPET") || mat.name().contains("FENCE") || mat.name().contains("WALL") ||
+                        mat.name().contains("GATE") || mat.name().contains("BED")) {
+                        return true;
+                    }
+                }
+            }
+        }
         return false;
     }
 

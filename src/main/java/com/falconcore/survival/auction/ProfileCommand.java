@@ -47,9 +47,9 @@ public class ProfileCommand implements CommandExecutor, TabCompleter {
         String targetName = args[0];
         
         controller.getPlugin().getSchedulerAdapter().runTaskAsync(() -> {
-            OfflinePlayer targetPlayer = Bukkit.getOfflinePlayer(targetName);
+            OfflinePlayer targetPlayer = controller.getPlugin().getPlayerNameCache().getOfflinePlayer(targetName);
             
-            if (targetPlayer == null || (!targetPlayer.hasPlayedBefore() && !targetPlayer.isOnline())) {
+            if (targetPlayer == null) {
                 controller.getPlugin().getSchedulerAdapter().runEntityTask(player, () -> {
                     player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
                             TextComponent.fromLegacyText(Utils.formatColors("&cThat player does not exist.")));

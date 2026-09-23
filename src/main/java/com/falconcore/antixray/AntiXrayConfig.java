@@ -153,7 +153,7 @@ public class AntiXrayConfig {
         if (customSec != null) {
             for (String worldKey : customSec.getKeys(false)) {
                 String keyLower = worldKey.toLowerCase();
-                Boolean worldEn = customSec.contains(worldKey + ".enabled") ? customSec.getBoolean(worldKey + ".enabled") : null;
+                Boolean worldEn = customSec.isBoolean(worldKey + ".enabled") ? Boolean.valueOf(customSec.getBoolean(worldKey + ".enabled")) : null;
                 String envStr = customSec.getString(worldKey + ".environment", null);
                 Integer wType = null;
                 if (envStr != null) {
@@ -162,11 +162,37 @@ public class AntiXrayConfig {
                     else if (envLower.contains("end")) wType = 2;
                     else if (envLower.contains("overworld") || envLower.contains("normal")) wType = 0;
                 }
-                Boolean axEn = customSec.contains(worldKey + ".anti-xray") ? customSec.getBoolean(worldKey + ".anti-xray") :
-                        (customSec.contains(worldKey + ".antixray") ? customSec.getBoolean(worldKey + ".antixray") : null);
-                Boolean afEn = customSec.contains(worldKey + ".anti-freecam") ? customSec.getBoolean(worldKey + ".anti-freecam") :
-                        (customSec.contains(worldKey + ".antifreecam") ? customSec.getBoolean(worldKey + ".antifreecam") : null);
-                Integer engMode = customSec.contains(worldKey + ".engine-mode") ? customSec.getInt(worldKey + ".engine-mode") : null;
+                Boolean axEn = null;
+                if (customSec.isBoolean(worldKey + ".anti-xray")) {
+                    axEn = customSec.getBoolean(worldKey + ".anti-xray");
+                } else if (customSec.isBoolean(worldKey + ".antixray")) {
+                    axEn = customSec.getBoolean(worldKey + ".antixray");
+                } else if (customSec.isBoolean(worldKey + ".anti-xray.enabled")) {
+                    axEn = customSec.getBoolean(worldKey + ".anti-xray.enabled");
+                } else if (customSec.isBoolean(worldKey + ".antixray.enabled")) {
+                    axEn = customSec.getBoolean(worldKey + ".antixray.enabled");
+                }
+
+                Boolean afEn = null;
+                if (customSec.isBoolean(worldKey + ".anti-freecam")) {
+                    afEn = customSec.getBoolean(worldKey + ".anti-freecam");
+                } else if (customSec.isBoolean(worldKey + ".antifreecam")) {
+                    afEn = customSec.getBoolean(worldKey + ".antifreecam");
+                } else if (customSec.isBoolean(worldKey + ".anti-freecam.enabled")) {
+                    afEn = customSec.getBoolean(worldKey + ".anti-freecam.enabled");
+                } else if (customSec.isBoolean(worldKey + ".antifreecam.enabled")) {
+                    afEn = customSec.getBoolean(worldKey + ".antifreecam.enabled");
+                }
+
+                Integer engMode = null;
+                if (customSec.isInt(worldKey + ".engine-mode")) {
+                    engMode = customSec.getInt(worldKey + ".engine-mode");
+                } else if (customSec.isInt(worldKey + ".anti-xray.engine-mode")) {
+                    engMode = customSec.getInt(worldKey + ".anti-xray.engine-mode");
+                } else if (customSec.isInt(worldKey + ".antixray.engine-mode")) {
+                    engMode = customSec.getInt(worldKey + ".antixray.engine-mode");
+                }
+
                 customWorldSettings.put(keyLower, new CustomWorldConfig(worldEn, wType, axEn, afEn, engMode));
             }
         }

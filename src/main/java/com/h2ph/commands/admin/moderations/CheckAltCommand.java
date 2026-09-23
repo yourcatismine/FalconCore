@@ -54,23 +54,10 @@ public class CheckAltCommand implements CommandExecutor, TabCompleter {
             DatabaseManager.LoadResult<DatabaseManager.PlayerDataStats> result = null;
             UUID targetUuid = null;
 
-            Player online = Bukkit.getPlayer(targetName);
-            if (online != null) {
-                targetUuid = online.getUniqueId();
+            org.bukkit.OfflinePlayer targetPlayer = plugin.getPlayerNameCache().getOfflinePlayer(targetName);
+            if (targetPlayer != null) {
+                targetUuid = targetPlayer.getUniqueId();
                 result = plugin.getDatabaseManager().loadPlayerStats(targetUuid);
-            } else {
-                String queryUuid = "SELECT uuid FROM player_names WHERE cached_name LIKE ? LIMIT 1";
-                try (Connection conn = plugin.getDatabaseManager().getConnection();
-                        PreparedStatement ps = conn.prepareStatement(queryUuid)) {
-                    ps.setString(1, targetName);
-                    try (ResultSet rs = ps.executeQuery()) {
-                        if (rs.next()) {
-                            targetUuid = UUID.fromString(rs.getString("uuid"));
-                            result = plugin.getDatabaseManager().loadPlayerStats(targetUuid);
-                        }
-                    }
-                } catch (SQLException e) {
-                }
             }
 
             DatabaseManager.PlayerDataStats stats = (result != null) ? result.getData() : null;

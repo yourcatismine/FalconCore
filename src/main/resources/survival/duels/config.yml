@@ -1,32 +1,11 @@
 pending-timeout: 60
 request-cooldown: 10
 
-ignored-commands:
-  - "duel"
-  - "shop"
-  - "sell"
-  - "ah"
-  - "auction"
-  - "order"
-  - "orders"
-  - "msg"
-  - "kill"
-  - "tell"
-  - "r"
-  - "reply"
-  - "cf"
-  - "coinflip"
 
-banned-commands:
-  - "fly"
-  - "home"
-  - "rtp"
+# Worlds that cannot be selected or used as duel arenas (e.g. main survival worlds)
+# This prevents accidentally resizing the WorldBorder of survival, spawn, nether, end, etc.
+blacklisted-worlds:
+  - "world"
+  - "world_nether"
+  - "world_the_end"
   - "spawn"
-  - "tpa"
-  - "tpahere"
-  - "tpaccept"
-  - "tpacancel"
-  - "tpask"
-  - "tpauto"
-  - "tpadeny"
-  - "tpall"

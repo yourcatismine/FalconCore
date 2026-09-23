@@ -158,10 +158,21 @@ public class OcclusionRegistry {
 
     public boolean isOreOrValuable(String name) {
         if (name == null || name.isEmpty()) return false;
+        // Never classify redstone blocks, redstone components, mechanical blocks, note blocks, or containers as ores
+        if (name.equals("redstone_block") || name.contains("redstone_lamp") || name.contains("redstone_torch")
+                || name.contains("redstone_wire") || name.contains("repeater") || name.contains("comparator")
+                || name.contains("observer") || name.contains("piston") || name.contains("dropper")
+                || name.contains("dispenser") || name.contains("hopper") || name.contains("note_block")
+                || name.contains("chest") || name.contains("barrel") || name.contains("shulker")
+                || name.contains("spawner") || name.contains("jukebox") || name.contains("target")
+                || name.contains("furnace") || name.contains("smoker") || name.contains("crafter")
+                || name.contains("anvil") || name.contains("brewing") || name.contains("decorated_pot")) {
+            return false;
+        }
+        if (name.equals("redstone_ore") || name.equals("deepslate_redstone_ore")) return true;
         if (name.contains("ore")) return true;
         if (name.equals("ancient_debris")) return true;
         if (name.contains("raw_") && name.contains("block")) return true;
-        if (name.equals("chest") || name.equals("trapped_chest") || name.equals("spawner")) return true;
         return false;
     }
 
@@ -211,7 +222,8 @@ public class OcclusionRegistry {
                 || name.contains("bell") || name.contains("respawn_anchor") || name.contains("lodestone")
                 || name.contains("vault") || name.contains("crafter") || name.contains("bed")
                 || name.contains("banner") || name.contains("sign") || name.contains("decorated_pot")
-                || name.contains("spawner")) {
+                || name.contains("spawner") || name.contains("jukebox") || name.contains("note_block")
+                || name.contains("fletching") || name.contains("composter") || name.contains("cauldron")) {
             return false;
         }
 
@@ -221,22 +233,26 @@ public class OcclusionRegistry {
                 || name.contains("lever") || name.contains("button") || name.contains("pressure_plate")
                 || name.contains("tripwire") || name.contains("daylight") || name.contains("tnt")
                 || name.contains("rail") || name.contains("scaffolding") || name.contains("ladder")
-                || name.contains("chain") || name.contains("iron_bars") || name.contains("lightning_rod")) {
+                || name.contains("chain") || name.contains("iron_bars") || name.contains("lightning_rod")
+                || name.contains("copper_bulb") || name.contains("sculk_sensor") || name.contains("calibrated_sculk_sensor")) {
             return false;
         }
 
-        // Crafted construction blocks (planks, glazed terracotta, concrete, wool, glass, doors, etc.)
+        // Crafted construction blocks / metals / decorative materials
         if (name.contains("planks") || name.contains("glass") || name.contains("wool")
-                || name.contains("concrete") || name.contains("glazed") || name.contains("door")
-                || name.contains("trapdoor") || name.contains("fence") || name.contains("gate")
-                || name.contains("carpet") || name.contains("bricks") && (name.contains("stone_brick") || name.contains("mud_brick") || name.contains("prismarine") || name.contains("nether_brick") || name.contains("quartz"))) {
+                || name.contains("concrete") || name.contains("glazed") || name.contains("terracotta")
+                || name.contains("door") || name.contains("trapdoor") || name.contains("fence") || name.contains("gate")
+                || name.contains("carpet") || name.contains("slab") || name.contains("stairs") || name.contains("wall")
+                || name.contains("brick") || name.contains("tile") || name.contains("polished") || name.contains("chiseled")
+                || name.contains("cut_") || name.contains("smooth_stone") || name.contains("purpur") || name.contains("prismarine")
+                || name.contains("lantern") || name.contains("torch") || name.contains("candle") || name.contains("sea_lantern")
+                || name.contains("iron_block") || name.contains("gold_block") || name.contains("diamond_block")
+                || name.contains("netherite_block") || name.contains("emerald_block") || name.contains("copper_block")
+                || name.contains("lapis_block") || name.contains("coal_block") || name.contains("quartz_block")
+                || name.contains("hay_block") || name.contains("dried_kelp_block") || name.contains("bone_block")) {
             return false;
         }
 
-        // EVERYTHING else underground is natural world generation:
-        // Stone, deepslate, tuff, calcite, andesite, diorite, granite, dirt, gravel, clay, sand, mud,
-        // lush caves (moss, cave vines, glow berries, azalea, dripleaf, spore blossoms, roots, glow lichen),
-        // amethyst geodes, dripstones, sculk, netherrack, basalt, blackstone, ores, water, lava, etc.
         return true;
     }
 

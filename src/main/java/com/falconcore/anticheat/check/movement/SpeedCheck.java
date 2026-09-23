@@ -48,7 +48,7 @@ public class SpeedCheck extends Check {
         if (!enabled) return;
 
         if (player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR) return;
-        if (player.isFlying()) return;
+        if (player.getAllowFlight() || player.isFlying()) return;
 
         if (manager.hasBypass(player)) return;
 
@@ -71,16 +71,19 @@ public class SpeedCheck extends Check {
 
         double velBonusXZ = 0.0;
         if (data.getVelocityTicks() > 0 && data.getLastVelocity() != null) {
-            velBonusXZ = Math.hypot(data.getLastVelocity().getX(), data.getLastVelocity().getZ());
+            velBonusXZ = Math.hypot(data.getLastVelocity().getX(), data.getLastVelocity().getZ()) * 1.5;
         }
         if (isLegitRiptide) {
             velBonusXZ += 2.5;
         }
         if (data.getLungeTicks() > 0) {
-            velBonusXZ += Math.min(0.65, data.getLungeTicks() * 0.035);
+            velBonusXZ += Math.max(1.2, data.getLungeTicks() * 0.08);
+        }
+        if (data.getDamageTicks() > 0) {
+            velBonusXZ += Math.max(1.5, data.getDamageTicks() * 0.10);
         }
         if (data.getWindBoostTicks() > 0) {
-            velBonusXZ += Math.min(0.50, data.getWindBoostTicks() * 0.025);
+            velBonusXZ += Math.min(1.2, data.getWindBoostTicks() * 0.04);
         }
 
         int speedBoostLevel = data.getPotionAmplifier(player, PotionEffectType.SPEED);
@@ -88,7 +91,7 @@ public class SpeedCheck extends Check {
         double potionMultiplier = 1.0 + (speedBoostLevel * 0.20) - (slownessLevel * 0.15);
         if (potionMultiplier < 0.2) potionMultiplier = 0.2;
 
-        if (typeDEnabled && data.isOnGround() && !data.hasIceFriction() && !data.isUnderLowCeiling() && velBonusXZ <= 0.08) {
+        if (typeDEnabled && data.isOnGround() && !data.hasIceFriction() && !data.isUnderLowCeiling() && velBonusXZ <= 0.08 && data.getDamageTicks() <= 0) {
             if (player.isSneaking() && data.getSneakTicks() >= 8 && groundTicks >= 5 && Math.abs(deltaY) < 0.01 && !data.isNearWall()) {
                 double maxSneak = (typeDMaxSneakSpeed * potionMultiplier) + 0.06;
                 if (deltaXZ > maxSneak) {
@@ -133,7 +136,7 @@ public class SpeedCheck extends Check {
             }
         }
 
-        if (typeFEnabled && data.isOnGround() && groundTicks >= 4 && !data.hadVelocityThisAir() && player.isSprinting() && deltaXZ > 0.26 && !data.isInWater() && !data.hasIceFriction() && !data.isNearWall() && data.getVelocityTicks() <= 0 && lastDeltaXZ <= 0.35) {
+        if (typeFEnabled && data.isOnGround() && groundTicks >= 4 && !data.hadVelocityThisAir() && player.isSprinting() && deltaXZ > 0.26 && !data.isInWater() && !data.hasIceFriction() && !data.isNearWall() && data.getVelocityTicks() <= 0 && data.getDamageTicks() <= 0 && lastDeltaXZ <= 0.35) {
             double angleDeviation = data.getMovementAngleDeviation(player);
             double maxAngle = Math.max(typeFMaxAngleDeviation, 85.0);
             if (angleDeviation > maxAngle) {
@@ -161,9 +164,11 @@ public class SpeedCheck extends Check {
 
         double ceilingBonus = data.isUnderLowCeiling() ? 0.12 : 0.0;
         double wallBonus = data.isNearWall() ? 0.03 : 0.0;
-        double combatBonus = (data.getAttackTicks() > 0 ? 0.08 : 0.0)
-                + (data.getDamageTicks() > 0 ? 0.45 : 0.0)
-                + (data.getNearbyEntityCount() > 0 ? Math.min(0.25, data.getNearbyEntityCount() * 0.08) : 0.0);
+        double combatBonus = (data.getAttackTicks() > 0 ? 0.10 : 0.0)
+                + (data.getDamageTicks() > 0 ? 1.50 : 0.0)
+                + (data.getNearbyEntityCount() > 0 ? Math.min(0.35, data.getNearbyEntityCount() * 0.10) : 0.0);
+
+        boolean inKnockbackGrace = data.getDamageTicks() > 0 || data.getVelocityTicks() > 0 || data.getLungeTicks() > 0 || data.hadVelocityThisAir();
 
         if (typeBEnabled && (airTicks >= 1 || !data.isOnGround()) && !data.isBouncedOnSlime() && !data.isBouncedOnBed() && !isLegitRiptide && data.getRiptideTicks() <= 0) {
             boolean isMidAirFlight = airTicks >= 3 && Math.abs(deltaY) < 0.05 && Math.abs(data.getLastDeltaY()) < 0.05 && !data.isNearSolidBelow() && !data.isOnGround();
@@ -175,7 +180,7 @@ public class SpeedCheck extends Check {
                 double maxAirLaunch = (baseAirLaunch * potionMultiplier) + soulSpeedBonus + ceilingAirBonus + wallAirBonus + velBonusXZ + combatBonus + 0.035;
 
                 if (airTicks == 1) {
-                    if (deltaXZ > maxAirLaunch) {
+                    if (deltaXZ > maxAirLaunch && !inKnockbackGrace) {
                         fail(player, data, "Type B (Air Launch)", typeBVlIncrement,
                                 String.format("Air launch speed exceeded (dXZ=%.4f > max=%.4f)", deltaXZ, maxAirLaunch));
                         return;
@@ -185,7 +190,7 @@ public class SpeedCheck extends Check {
                     double strafeAccel = Math.max(typeBMaxStrafeAccel, player.isSprinting() ? 0.032 : 0.022) * potionMultiplier;
                     double expectedMaxAirSpeed = (clampedPrev * typeBAirFriction) + strafeAccel + (speedBoostLevel * 0.010) + ceilingAirBonus + wallAirBonus + velBonusXZ + combatBonus + 0.028;
 
-                    if (deltaXZ > expectedMaxAirSpeed) {
+                    if (deltaXZ > expectedMaxAirSpeed && !inKnockbackGrace) {
                         fail(player, data, "Type B (Bhop)", typeBVlIncrement,
                                 String.format("Airborne acceleration exceeded (dXZ=%.4f > exp=%.4f, diff=%.4f, airTicks=%d)",
                                         deltaXZ, expectedMaxAirSpeed, deltaXZ - expectedMaxAirSpeed, airTicks));
@@ -222,7 +227,7 @@ public class SpeedCheck extends Check {
             }
 
 
-            if (deltaXZ > maxGroundSpeed) {
+            if (deltaXZ > maxGroundSpeed && !inKnockbackGrace) {
                 fail(player, data, "Type A (Ground Speed)", typeAVlIncrement,
                         String.format("Exceeded maximum ground speed (dXZ=%.4f > max=%.4f, last=%.4f, ceil=%s, wall=%s, grnd=%d, jump=%b)",
                                 deltaXZ, maxGroundSpeed, lastDeltaXZ, data.isUnderLowCeiling(), data.isNearWall(), groundTicks, isJumping));

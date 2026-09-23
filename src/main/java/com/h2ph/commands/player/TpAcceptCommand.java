@@ -37,8 +37,8 @@ public class TpAcceptCommand implements CommandExecutor, TabCompleter {
                 request = TpaRequestManager.getInstance().getRequest(p.getUniqueId(), target.getUniqueId());
                 targetPlayer = target;
             } else {
-                org.bukkit.OfflinePlayer offlineTarget = Bukkit.getOfflinePlayer(args[0]);
-                if (offlineTarget.hasPlayedBefore()) {
+                boolean exists = Falcon.getInstance().getPlayerNameCache().playerExists(args[0]);
+                if (exists) {
                     String msg = ChatColor.translateAlternateColorCodes('&', "&cThat player is not online.");
                     p.sendMessage(msg);
                     p.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,

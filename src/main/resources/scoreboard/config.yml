@@ -22,6 +22,33 @@ SCOREBOARD:
     - ""
     - " &7Asia (&b{region_ping}ms&7)"
 
+# Duel Scoreboard (Active only when the player is in a Duel match)
+# Supported Placeholders:
+#   {opponent} / {kalaban}         - Opponent's username
+#   {opponent_ping}                - Opponent's ping (ms)
+#   {opponent_health}              - Opponent's health
+#   {opponent_winrate}             - Opponent's historical win rate (e.g. 65.50%)
+#   {win_chance} / {win_percentage}- Estimated win probability based on matchup (e.g. 58.2%)
+#   {winrate}                      - Your own duel win rate
+#   {duel_time} / {match_time}     - Match time remaining (mm:ss)
+#   {time_elapsed}                 - Elapsed match time (mm:ss)
+#   {arena}                        - Current duel arena
+#   {streak}                       - Your win streak
+#   {opponent_streak}              - Opponent's win streak
+#   {gamertag}, {ping}, {region_ping}, {health}, {tps}, {mspt}, %falconcore_...%
+DUEL:
+  ENABLED: true
+  TITLE:
+    - "&#FF2A2A&lF&#FF4545&la&#FF6060&ll&#FF7B7B&lc&#FF9696&lo&#FFB1B1&ln&#FFCCCC&lSMP"
+  LINES:
+    - ""
+    - " &c⚔ &c{opponent} &7(&c{opponent_ping}ms&7)"
+    - " &7Win Chance &e{win_chance}"
+    - " &7Opponent Winrate &a{opponent_winrate}"
+    - " &7Your Winrate &d{winrate}"
+    - ""
+    - " &7Asia (&b{ping}ms&7) &f| &7Time &b{duel_time}"
+
 CHAT-FORMAT:
   ENABLED: true
   CHAT: "&f%prefix%%player%&7: &f%message%"

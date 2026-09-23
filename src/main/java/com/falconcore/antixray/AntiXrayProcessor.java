@@ -147,9 +147,13 @@ public class AntiXrayProcessor {
 
                     for (int lz = 0; lz < 16; lz++) {
                         for (int lx = 0; lx < 16; lx++) {
-                            chunk.set(lx, ly, lz, fakeStateId);
-                            obfuscatedCount++;
-                            freecamObfuscatedCount++;
+                            int stateId = chunk.getBlockId(lx, ly, lz);
+                            // Preserve player buildings, redstone, and non-natural structures
+                            if (stateId == 0 || registry.isNaturalRockOrAir(stateId)) {
+                                chunk.set(lx, ly, lz, fakeStateId);
+                                obfuscatedCount++;
+                                freecamObfuscatedCount++;
+                            }
                         }
                     }
                 }
@@ -180,16 +184,18 @@ public class AntiXrayProcessor {
 
                         // Anti-Freecam Planar Blockade at Deepslate level (Y <= 0 in Overworld, Y <= 127 in Nether):
                         // Fills like a flat plane wall on sides and a flat floor at the bottom outside vertical distance
-                        // Completely conceals all blocks, chests, spawners, containers, and ores from Freecam / Tracers!
+                        // Completely conceals natural subterranean caves and ores while 100% preserving player bases/redstone!
                         if (isFreecamDimension && antiFreecam && worldY <= freecamMaxY) {
                             int bdx = Math.abs(worldX - playerX);
                             int bdz = Math.abs(worldZ - playerZ);
                             int bdy = playerY - worldY;
                             if (bdx > freecamDist || bdz > freecamDist || bdy > freecamVertDist) {
-                                chunk.set(lx, ly, lz, fakeBaseId);
-                                obfuscatedCount++;
-                                freecamObfuscatedCount++;
-                                continue;
+                                if (stateId == 0 || registry.isNaturalRockOrAir(stateId)) {
+                                    chunk.set(lx, ly, lz, fakeBaseId);
+                                    obfuscatedCount++;
+                                    freecamObfuscatedCount++;
+                                    continue;
+                                }
                             }
                         }
 
@@ -301,43 +307,6 @@ public class AntiXrayProcessor {
             }
         }
 
-        // Step 3: Strip Tile Entities (Chests, Spawners, Signs, Shulkers, etc.) outside Freecam boundary
-        if (TILE_ENTITIES_FIELD != null && isFreecamDimension && antiFreecam) {
-            try {
-                com.github.retrooper.packetevents.protocol.world.chunk.TileEntity[] te = column.getTileEntities();
-                if (te != null && te.length > 0) {
-                    java.util.List<com.github.retrooper.packetevents.protocol.world.chunk.TileEntity> kept = null;
-                    for (int i = 0; i < te.length; i++) {
-                        com.github.retrooper.packetevents.protocol.world.chunk.TileEntity t = te[i];
-                        if (t == null) continue;
-                        int worldY = t.getY();
-                        if (worldY <= freecamMaxY) {
-                            int tx = (chunkX << 4) + (t.getX() & 15);
-                            int tz = (chunkZ << 4) + (t.getZ() & 15);
-                            int bdx = Math.abs(tx - playerX);
-                            int bdz = Math.abs(tz - playerZ);
-                            int bdy = playerY - worldY;
-                            if (bdx > freecamDist || bdz > freecamDist || bdy > freecamVertDist) {
-                                if (kept == null) {
-                                    kept = new java.util.ArrayList<>(te.length);
-                                    for (int j = 0; j < i; j++) {
-                                        if (te[j] != null) kept.add(te[j]);
-                                    }
-                                }
-                                continue;
-                            }
-                        }
-                        if (kept != null) {
-                            kept.add(t);
-                        }
-                    }
-                    if (kept != null) {
-                        TILE_ENTITIES_FIELD.set(column, kept.toArray(new com.github.retrooper.packetevents.protocol.world.chunk.TileEntity[0]));
-                    }
-                }
-            } catch (Throwable ignored) {}
-        }
-
         if (!exposedOresList.isEmpty()) {
             cache.storeExposedOres(worldName, chunkX, chunkZ, exposedOresList);
         }
@@ -386,9 +355,11 @@ public class AntiXrayProcessor {
             int bdz = Math.abs(bz - pz);
             int bdy = py - by;
             if (bdx > config.getAntiFreecamDistance() || bdz > config.getAntiFreecamDistance() || bdy > config.getAntiFreecamVerticalDistance()) {
-                packet.setBlockID(fakeDefaultId);
-                blocksObfuscated.incrementAndGet();
-                return;
+                if (stateId == 0 || registry.isNaturalRockOrAir(stateId)) {
+                    packet.setBlockID(fakeDefaultId);
+                    blocksObfuscated.incrementAndGet();
+                    return;
+                }
             }
         }
 
@@ -482,9 +453,11 @@ public class AntiXrayProcessor {
                 int bdz = Math.abs(worldZ - pz);
                 int bdy = py - worldY;
                 if (bdx > freecamDist || bdz > freecamDist || bdy > freecamVertDist) {
-                    block.setBlockId(fakeDefaultId);
-                    blocksObfuscated.incrementAndGet();
-                    continue;
+                    if (stateId == 0 || registry.isNaturalRockOrAir(stateId)) {
+                        block.setBlockId(fakeDefaultId);
+                        blocksObfuscated.incrementAndGet();
+                        continue;
+                    }
                 }
             }
 

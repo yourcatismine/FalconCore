@@ -123,13 +123,11 @@ public class ChannelDetector implements Listener, PluginMessageListener {
         this.manager = manager;
         this.registerPacketListener();
 
-        try {
-            manager.getPlugin().getServer().getMessenger().registerIncomingPluginChannel(manager.getPlugin(), "MC|Brand", this);
-            manager.getPlugin().getServer().getMessenger().registerIncomingPluginChannel(manager.getPlugin(), "minecraft:brand", this);
-            manager.getPlugin().getServer().getMessenger().registerIncomingPluginChannel(manager.getPlugin(), "minecraft:register", this);
-            manager.getPlugin().getServer().getMessenger().registerIncomingPluginChannel(manager.getPlugin(), "REGISTER", this);
-        } catch (Throwable t) {
-            manager.getLogger().warning("[FalconChecker] Failed to register Bukkit channels: " + t.getMessage());
+        for (String ch : new String[]{"minecraft:brand", "minecraft:register", "MC|Brand", "REGISTER"}) {
+            try {
+                manager.getPlugin().getServer().getMessenger().registerIncomingPluginChannel(manager.getPlugin(), ch, this);
+            } catch (Throwable ignored) {
+            }
         }
     }
 

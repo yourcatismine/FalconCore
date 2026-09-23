@@ -91,7 +91,11 @@ public class ShardsManager implements Listener {
             return;
         }
 
-        if (plugin.getAfkManager().getRegionAt(player.getLocation()) != null) {
+        if (plugin.getAfkManager() != null && plugin.getAfkManager().getRegionAt(player.getLocation()) != null) {
+            return;
+        }
+
+        if (isPlayerInDuel(player)) {
             return;
         }
 
@@ -105,6 +109,18 @@ public class ShardsManager implements Listener {
         }
 
         activeTime.put(uuid, current);
+    }
+
+    private boolean isPlayerInDuel(Player player) {
+        if (player == null) return false;
+        if (plugin.getDuelArenaManager() != null) {
+            com.h2ph.commands.admin.duels.DuelArenaManager duelManager = plugin.getDuelArenaManager();
+            if (duelManager.isInDuel(player) || duelManager.isPreDuel(player) || duelManager.isLooting(player)
+                    || duelManager.isSoloTest(player) || duelManager.isLocationInArena(player.getLocation())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void givePassiveReward(Player player) {
@@ -140,6 +156,10 @@ public class ShardsManager implements Listener {
         Player killer = victim.getKiller();
 
         if (killer == null || killer == victim) {
+            return;
+        }
+
+        if (isPlayerInDuel(killer) || isPlayerInDuel(victim)) {
             return;
         }
 

@@ -55,6 +55,15 @@ public class CommandHideListener implements Listener {
             return;
         }
 
+        if (plugin.getDuelArenaManager() != null &&
+            (plugin.getDuelArenaManager().isInDuel(player) || plugin.getDuelArenaManager().isPreDuel(player) || plugin.getDuelArenaManager().isLooting(player))) {
+            event.getCommands().removeIf(cmd -> !cmd.equalsIgnoreCase("duel") && !cmd.equalsIgnoreCase("duels"));
+            return;
+        }
+
+        if (!whitelistEnabled)
+            return;
+
         Collection<String> commands = event.getCommands();
 
         commands.removeIf(command -> {
@@ -73,15 +82,20 @@ public class CommandHideListener implements Listener {
      */
     @EventHandler
     public void onCommandPreprocess(PlayerCommandPreprocessEvent event) {
-        if (!whitelistEnabled)
-            return;
-
         org.bukkit.entity.Player player = event.getPlayer();
         com.falconcore.survival.manager.PlayerData data = plugin.getPlayerDataManager().get(player.getUniqueId());
 
         if ((player.isOp() || player.hasPermission("falcon.staffmode")) && data != null && data.isStaffMode()) {
             return;
         }
+
+        if (plugin.getDuelArenaManager() != null &&
+            (plugin.getDuelArenaManager().isInDuel(player) || plugin.getDuelArenaManager().isPreDuel(player) || plugin.getDuelArenaManager().isLooting(player))) {
+            return;
+        }
+
+        if (!whitelistEnabled)
+            return;
 
         String message = event.getMessage().toLowerCase();
 

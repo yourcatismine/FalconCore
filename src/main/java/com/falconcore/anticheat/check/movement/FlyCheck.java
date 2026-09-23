@@ -80,8 +80,8 @@ public class FlyCheck extends Check {
         int fallTicks = data.getFallTicks();
         int jumpTicks = data.getJumpTicks();
         int jumpBoostLevel = data.getPotionAmplifier(player, PotionEffectType.JUMP_BOOST);
-        boolean hasVelocity = data.getVelocityTicks() > 0 || data.getWindBoostTicks() > 0 || data.getDamageTicks() > 0;
-        boolean hadVelocityThisAir = data.hadVelocityThisAir() || data.getWindBoostTicks() > 0 || data.getDamageTicks() > 0;
+        boolean hasVelocity = data.getVelocityTicks() > 0 || data.getWindBoostTicks() > 0 || data.getDamageTicks() > 0 || data.getLungeTicks() > 0;
+        boolean hadVelocityThisAir = data.hadVelocityThisAir() || data.getWindBoostTicks() > 0 || data.getDamageTicks() > 0 || data.getLungeTicks() > 0;
         boolean isRiptideLaunch = isLegitRiptide && data.getRiptideTicks() >= 18;
 
         if (typeGEnabled && airTicks >= typeGMinAirTicks && !data.isBouncedOnSlime() && !data.isBouncedOnBed() && !hasVelocity && !hadVelocityThisAir && !isLegitRiptide && data.getWindBoostTicks() <= 0) {

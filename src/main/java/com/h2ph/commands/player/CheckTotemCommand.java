@@ -35,9 +35,9 @@ public class CheckTotemCommand implements CommandExecutor, TabCompleter {
         Player target = Bukkit.getPlayer(args[0]);
         if (target == null) {
             Bukkit.getAsyncScheduler().runNow(com.h2ph.Falcon.getInstance(), (task) -> {
-                org.bukkit.OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(args[0]);
+                boolean exists = com.h2ph.Falcon.getInstance().getPlayerNameCache().playerExists(args[0]);
                 Bukkit.getGlobalRegionScheduler().run(com.h2ph.Falcon.getInstance(), (globalTask) -> {
-                    if (offlinePlayer.hasPlayedBefore()) {
+                    if (exists) {
                         executor.spigot().sendMessage(ChatMessageType.ACTION_BAR, 
                             new TextComponent(ChatColor.translateAlternateColorCodes('&', "&cThat player is not online.")));
                     } else {

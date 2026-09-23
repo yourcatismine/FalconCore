@@ -33,6 +33,13 @@ public abstract class Check {
 
     public void fail(Player player, PlayerData data, String subCheck, double vlIncrement, String debugInfo) {
         if (!manager.isEnabled() || !enabled) return;
+        if (player.getGameMode() == org.bukkit.GameMode.CREATIVE 
+                || player.getGameMode() == org.bukkit.GameMode.SPECTATOR 
+                || player.getAllowFlight() 
+                || player.isFlying() 
+                || manager.hasBypass(player)) {
+            return;
+        }
 
         double newVl = data.addViolation(id, vlIncrement);
         data.addViolation(id + "_" + subCheck, vlIncrement);
@@ -62,6 +69,13 @@ public abstract class Check {
 
     public void setback(Player player, PlayerData data) {
         if (data.isAnticheatSetback()) return;
+        if (player.getGameMode() == org.bukkit.GameMode.CREATIVE 
+                || player.getGameMode() == org.bukkit.GameMode.SPECTATOR 
+                || player.getAllowFlight() 
+                || player.isFlying() 
+                || manager.hasBypass(player)) {
+            return;
+        }
 
         Location groundLoc = data.getLastGroundLocation();
         if (groundLoc != null && groundLoc.getWorld() != null) {

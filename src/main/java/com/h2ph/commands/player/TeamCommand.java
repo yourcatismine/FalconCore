@@ -172,8 +172,7 @@ public class TeamCommand implements CommandExecutor, TabCompleter {
 
         if (onlineTarget == null) {
             plugin.getSchedulerAdapter().runTaskAsync(() -> {
-                OfflinePlayer offlineTarget = Bukkit.getOfflinePlayer(targetName);
-                boolean exists = offlineTarget.hasPlayedBefore();
+                boolean exists = plugin.getPlayerNameCache().playerExists(targetName);
                 plugin.getSchedulerAdapter().runTask(() -> {
                     if (exists) {
                         sendAlert(player, "&cThat player is not online.", Sound.ENTITY_VILLAGER_NO);
@@ -322,8 +321,8 @@ public class TeamCommand implements CommandExecutor, TabCompleter {
         if (team == null)
             return;
 
-        OfflinePlayer target = Bukkit.getOfflinePlayer(targetName);
-        if (!target.hasPlayedBefore() && !target.isOnline()) {
+        OfflinePlayer target = plugin.getPlayerNameCache().getOfflinePlayer(targetName);
+        if (target == null) {
             player.sendMessage(ChatColor.RED + "That player does not exist.");
             return;
         }

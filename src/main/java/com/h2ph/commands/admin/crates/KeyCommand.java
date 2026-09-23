@@ -73,8 +73,8 @@ public class KeyCommand implements CommandExecutor, TabCompleter {
             }
             sender.sendMessage(ChatColor.GREEN + "Updated keys for " + Bukkit.getOnlinePlayers().size() + " players.");
         } else {
-            OfflinePlayer target = Bukkit.getOfflinePlayer(targetName);
-            if (target == null || (!target.hasPlayedBefore() && !target.isOnline())) {
+            OfflinePlayer target = plugin.getPlayerNameCache().getOfflinePlayer(targetName);
+            if (target == null) {
                 sendError(sender, "That player does not exist.");
                 return true;
             }

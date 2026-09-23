@@ -6,6 +6,7 @@ import com.falconcore.anticheat.check.CheckCategory;
 import com.falconcore.anticheat.data.PlayerData;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.attribute.Attribute;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.util.Vector;
@@ -22,6 +23,7 @@ public class VelocityCheck extends Check {
 
     public VelocityCheck(AntiCheatManager manager) {
         super(manager, "velocity", "Velocity", CheckCategory.MOVEMENT, "Detects ignoring or modifying knockback velocity");
+        this.setbackEnabled = false; // Never setback or freeze legitimate players during knockback checks
     }
 
     @Override
@@ -37,26 +39,48 @@ public class VelocityCheck extends Check {
 
         if (data.hasHardGrace()) return;
         if (data.isInWeb() || data.isInWater() || data.isInLava()) return;
+        if (player.isBlocking()) return;
+
+        // Check knockback resistance (Netherite armor, custom items/attributes)
+        try {
+            for (Attribute attr : Attribute.values()) {
+                if (attr.name().contains("KNOCKBACK_RESISTANCE")) {
+                    var kbAttr = player.getAttribute(attr);
+                    if (kbAttr != null && kbAttr.getValue() >= 0.40) {
+                        return;
+                    }
+                    break;
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        // Check obstacles and walls
+        if (data.isNearWall() || data.isUnderLowCeiling() || data.isOnClimbable()) {
+            velocityBuffer.computeIfPresent(player.getUniqueId(), (k, v) -> v > 0 ? v - 1 : null);
+            return;
+        }
 
         int vTicks = data.getVelocityTicks();
-        if (vTicks > 0 && vTicks <= 5) {
+        if (vTicks > 0) {
             Vector expected = data.getLastVelocity();
             if (expected != null && expected.lengthSquared() > 0.04) {
                 double expXZ = Math.hypot(expected.getX(), expected.getZ());
                 double actualXZ = data.getDeltaXZ();
 
-                if (expXZ > 0.25 && actualXZ < (expXZ * 0.15) && !data.isNearWall() && !data.isUnderLowCeiling()) {
-                    int buffer = velocityBuffer.getOrDefault(player.getUniqueId(), 0) + 1;
-                    velocityBuffer.put(player.getUniqueId(), buffer);
+                if (vTicks >= 1 && vTicks <= 12) {
+                    if (expXZ > 0.40 && actualXZ < 0.06 && data.getDamageTicks() > 0) {
+                        int buffer = velocityBuffer.getOrDefault(player.getUniqueId(), 0) + 1;
+                        velocityBuffer.put(player.getUniqueId(), buffer);
 
-                    if (buffer >= 2) {
-                        fail(player, data, "Type A (Anti-Knockback)", typeAVlIncrement,
-                                String.format("expectedXZ=%.3f, actualXZ=%.3f, buffer=%d", expXZ, actualXZ, buffer));
-                    }
-                } else {
-                    int buf = velocityBuffer.getOrDefault(player.getUniqueId(), 0);
-                    if (buf > 0) {
-                        velocityBuffer.put(player.getUniqueId(), buf - 1);
+                        if (buffer >= 6) {
+                            fail(player, data, "Type A (Anti-Knockback)", typeAVlIncrement,
+                                    String.format("expectedXZ=%.3f, actualXZ=%.3f, buffer=%d, ping=%d", expXZ, actualXZ, buffer, player.getPing()));
+                        }
+                    } else {
+                        int buf = velocityBuffer.getOrDefault(player.getUniqueId(), 0);
+                        if (buf > 0) {
+                            velocityBuffer.put(player.getUniqueId(), buf - 1);
+                        }
                     }
                 }
             }

@@ -1,5 +1,6 @@
 package com.h2ph.commands.player;
 
+import com.h2ph.Falcon;
 import com.h2ph.managers.TpaRequestManager;
 import com.h2ph.utils.SmallCapsUtil;
 import org.bukkit.ChatColor;
@@ -35,9 +36,9 @@ public class TpaDenyCommand implements CommandExecutor, TabCompleter {
             if (targetSender != null) {
                 request = TpaRequestManager.getInstance().getRequest(p.getUniqueId(), targetSender.getUniqueId());
             } else {
-                org.bukkit.OfflinePlayer offlineSender = org.bukkit.Bukkit.getOfflinePlayer(args[0]);
+                boolean exists = Falcon.getInstance().getPlayerNameCache().playerExists(args[0]);
                 String msg;
-                if (offlineSender.hasPlayedBefore()) {
+                if (exists) {
                     msg = ChatColor.translateAlternateColorCodes('&', "&cThat player is not online.");
                 } else {
                     msg = ChatColor.translateAlternateColorCodes('&', "&cThat player does not exist.");

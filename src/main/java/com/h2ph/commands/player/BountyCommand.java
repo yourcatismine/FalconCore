@@ -103,8 +103,8 @@ public class BountyCommand implements CommandExecutor, TabCompleter {
                 new com.h2ph.gui.BountyConfirmGUI(plugin).open(player, target.getUniqueId(), target.getName(), amount);
             } else {
                 plugin.getSchedulerAdapter().runTaskAsync(() -> {
-                    OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(targetName);
-                    if (!offlinePlayer.hasPlayedBefore() && !offlinePlayer.isOnline()) {
+                    OfflinePlayer offlinePlayer = plugin.getPlayerNameCache().getOfflinePlayer(targetName);
+                    if (offlinePlayer == null) {
                         plugin.getSchedulerAdapter().runTask(() -> {
                             new BountyGUI(plugin).open(player);
                         });

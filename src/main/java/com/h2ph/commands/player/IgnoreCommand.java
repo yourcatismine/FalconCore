@@ -52,8 +52,8 @@ public class IgnoreCommand implements CommandExecutor, TabCompleter {
             final String finalTargetName = targetName;
             final Player finalPlayer = player;
             plugin.getSchedulerAdapter().runTaskAsync(() -> {
-                org.bukkit.OfflinePlayer offlineTarget = Bukkit.getOfflinePlayer(finalTargetName);
-                if (offlineTarget.hasPlayedBefore()) {
+                org.bukkit.OfflinePlayer offlineTarget = plugin.getPlayerNameCache().getOfflinePlayer(finalTargetName);
+                if (offlineTarget != null) {
                     UUID offlineUuid = offlineTarget.getUniqueId();
                     String offlineName = offlineTarget.getName();
                     

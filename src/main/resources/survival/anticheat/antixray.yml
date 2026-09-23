@@ -157,8 +157,6 @@ hidden-blocks:
   - "raw_iron_block"
   - "raw_gold_block"
   - "raw_copper_block"
-  - "chest"
-  - "spawner"
 
 # Fake ores to replace occluded blocks with (Engine Mode 2)
 replacement-blocks:

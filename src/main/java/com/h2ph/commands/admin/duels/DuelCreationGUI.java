@@ -42,7 +42,29 @@ public class DuelCreationGUI implements InventoryHolder, Listener {
                         + DuelGUIManager.toSmallCaps(target.getName())));
 
         loadBiomes();
+        this.durationMinutes = getDefaultDurationForBiome(selectedBiome);
         updateGUI();
+    }
+
+    private int getDefaultDurationForBiome(String biome) {
+        if (plugin.getDuelArenaManager() != null) {
+            if (biome.equalsIgnoreCase("Random")) {
+                for (DuelArenaManager.ArenaRegion arena : plugin.getDuelArenaManager().getArenaRegions()) {
+                    if (arena != null && arena.lootingMinutes > 0) {
+                        return arena.lootingMinutes;
+                    }
+                }
+            } else {
+                for (DuelArenaManager.ArenaRegion arena : plugin.getDuelArenaManager().getArenaRegions()) {
+                    if (arena != null && arena.biome != null && arena.biome.equalsIgnoreCase(biome)) {
+                        if (arena.lootingMinutes > 0) {
+                            return arena.lootingMinutes;
+                        }
+                    }
+                }
+            }
+        }
+        return 5;
     }
 
     private void loadBiomes() {
@@ -179,6 +201,10 @@ public class DuelCreationGUI implements InventoryHolder, Listener {
 
         List<String> timeLore = new ArrayList<>();
         timeLore.add("&7(" + durationMinutes + "m)");
+        timeLore.add("&8--------------------");
+        timeLore.add("&7[Left-Click] &a+1 minute");
+        timeLore.add("&7[Right-Click] &c-1 minute");
+        timeLore.add("&8(Min: &f1m&8, Max: &f60m&8)");
         inventory.setItem(13, createItem(Material.CLOCK, "&a" + DuelGUIManager.toSmallCaps("time"), timeLore));
 
         // Slot 14: Region (Flow Banner Pattern)
@@ -216,6 +242,7 @@ public class DuelCreationGUI implements InventoryHolder, Listener {
                 index = 0;
             }
             selectedBiome = availableBiomes.get(index);
+            durationMinutes = getDefaultDurationForBiome(selectedBiome);
             updateGUI();
             try {
                 creator.playSound(creator.getLocation(), org.bukkit.Sound.BLOCK_TRIPWIRE_CLICK_ON, 0.5f, 1.2f);
@@ -225,10 +252,10 @@ public class DuelCreationGUI implements InventoryHolder, Listener {
 
         if (slot == 13) {
             if (event.isLeftClick()) {
-                if (durationMinutes < 20)
+                if (durationMinutes < 60)
                     durationMinutes++;
             } else if (event.isRightClick()) {
-                if (durationMinutes > 5)
+                if (durationMinutes > 1)
                     durationMinutes--;
             }
             updateGUI();

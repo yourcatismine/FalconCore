@@ -322,190 +322,231 @@ public class PlayerData {
 
     private boolean checkMathematicalGround(Location loc) {
         if (loc.getWorld() == null || !isRegionSafe(loc)) return true;
-        double playerMinX = loc.getX() - 0.3;
-        double playerMaxX = loc.getX() + 0.3;
-        double playerMinZ = loc.getZ() - 0.3;
-        double playerMaxZ = loc.getZ() + 0.3;
-        double playerFeetY = loc.getY();
+        try {
+            double playerMinX = loc.getX() - 0.3;
+            double playerMaxX = loc.getX() + 0.3;
+            double playerMinZ = loc.getZ() - 0.3;
+            double playerMaxZ = loc.getZ() + 0.3;
+            double playerFeetY = loc.getY();
 
-        int minBlockX = (int) Math.floor(playerMinX);
-        int maxBlockX = (int) Math.floor(playerMaxX);
-        int minBlockZ = (int) Math.floor(playerMinZ);
-        int maxBlockZ = (int) Math.floor(playerMaxZ);
+            int minBlockX = (int) Math.floor(playerMinX);
+            int maxBlockX = (int) Math.floor(playerMaxX);
+            int minBlockZ = (int) Math.floor(playerMinZ);
+            int maxBlockZ = (int) Math.floor(playerMaxZ);
 
-        int minBlockY = (int) Math.floor(playerFeetY - 0.5);
-        int maxBlockY = (int) Math.floor(playerFeetY + 0.5);
+            int minBlockY = (int) Math.floor(playerFeetY - 0.5);
+            int maxBlockY = (int) Math.floor(playerFeetY + 0.5);
 
-        for (int x = minBlockX; x <= maxBlockX; x++) {
-            for (int y = minBlockY; y <= maxBlockY; y++) {
-                for (int z = minBlockZ; z <= maxBlockZ; z++) {
-                    Block block = loc.getWorld().getBlockAt(x, y, z);
-                    if (block.isPassable() || !block.getType().isSolid()) continue;
+            for (int x = minBlockX; x <= maxBlockX; x++) {
+                for (int y = minBlockY; y <= maxBlockY; y++) {
+                    for (int z = minBlockZ; z <= maxBlockZ; z++) {
+                        try {
+                            Location bLoc = new Location(loc.getWorld(), x, y, z);
+                            if (!isRegionSafe(bLoc)) continue;
+                            Block block = loc.getWorld().getBlockAt(x, y, z);
+                            if (block.isPassable() || !block.getType().isSolid()) continue;
 
-                    try {
-                        org.bukkit.util.BoundingBox box = block.getBoundingBox();
-                        if (playerMaxX > box.getMinX() && playerMinX < box.getMaxX() &&
-                            playerMaxZ > box.getMinZ() && playerMinZ < box.getMaxZ()) {
-                            double diff = playerFeetY - box.getMaxY();
-                            if (diff >= -0.05 && diff <= 0.15) {
-                                return true;
+                            try {
+                                org.bukkit.util.BoundingBox box = block.getBoundingBox();
+                                if (playerMaxX > box.getMinX() && playerMinX < box.getMaxX() &&
+                                    playerMaxZ > box.getMinZ() && playerMinZ < box.getMaxZ()) {
+                                    double diff = playerFeetY - box.getMaxY();
+                                    if (diff >= -0.05 && diff <= 0.15) {
+                                        return true;
+                                    }
+                                }
+                            } catch (Throwable t) {
+                                double blockTopY = y + 1.0;
+                                double diff = playerFeetY - blockTopY;
+                                if (diff >= -0.05 && diff <= 0.15) {
+                                    return true;
+                                }
                             }
-                        }
-                    } catch (Throwable t) {
-                        double blockTopY = y + 1.0;
-                        double diff = playerFeetY - blockTopY;
-                        if (diff >= -0.05 && diff <= 0.15) {
-                            return true;
-                        }
+                        } catch (Throwable ignored) {}
                     }
                 }
             }
-        }
+        } catch (Throwable ignored) {}
         return false;
     }
 
     private boolean checkNearSolidBelow(Location loc) {
         if (loc.getWorld() == null || !isRegionSafe(loc)) return true;
-        double playerMinX = loc.getX() - 0.3;
-        double playerMaxX = loc.getX() + 0.3;
-        double playerMinZ = loc.getZ() - 0.3;
-        double playerMaxZ = loc.getZ() + 0.3;
-        double playerFeetY = loc.getY();
+        try {
+            double playerMinX = loc.getX() - 0.3;
+            double playerMaxX = loc.getX() + 0.3;
+            double playerMinZ = loc.getZ() - 0.3;
+            double playerMaxZ = loc.getZ() + 0.3;
+            double playerFeetY = loc.getY();
 
-        int minBlockX = (int) Math.floor(playerMinX);
-        int maxBlockX = (int) Math.floor(playerMaxX);
-        int minBlockZ = (int) Math.floor(playerMinZ);
-        int maxBlockZ = (int) Math.floor(playerMaxZ);
+            int minBlockX = (int) Math.floor(playerMinX);
+            int maxBlockX = (int) Math.floor(playerMaxX);
+            int minBlockZ = (int) Math.floor(playerMinZ);
+            int maxBlockZ = (int) Math.floor(playerMaxZ);
 
-        int minBlockY = (int) Math.floor(playerFeetY - 0.6);
-        int maxBlockY = (int) Math.floor(playerFeetY + 0.5);
+            int minBlockY = (int) Math.floor(playerFeetY - 0.6);
+            int maxBlockY = (int) Math.floor(playerFeetY + 0.5);
 
-        for (int x = minBlockX; x <= maxBlockX; x++) {
-            for (int y = minBlockY; y <= maxBlockY; y++) {
-                for (int z = minBlockZ; z <= maxBlockZ; z++) {
-                    Block block = loc.getWorld().getBlockAt(x, y, z);
-                    if (block.isPassable() || !block.getType().isSolid()) continue;
+            for (int x = minBlockX; x <= maxBlockX; x++) {
+                for (int y = minBlockY; y <= maxBlockY; y++) {
+                    for (int z = minBlockZ; z <= maxBlockZ; z++) {
+                        try {
+                            Location bLoc = new Location(loc.getWorld(), x, y, z);
+                            if (!isRegionSafe(bLoc)) continue;
+                            Block block = loc.getWorld().getBlockAt(x, y, z);
+                            if (block.isPassable() || !block.getType().isSolid()) continue;
 
-                    try {
-                        org.bukkit.util.BoundingBox box = block.getBoundingBox();
-                        if (playerMaxX > box.getMinX() && playerMinX < box.getMaxX() &&
-                            playerMaxZ > box.getMinZ() && playerMinZ < box.getMaxZ()) {
-                            double diff = playerFeetY - box.getMaxY();
-                            if (diff >= -0.05 && diff <= 0.60) {
-                                return true;
+                            try {
+                                org.bukkit.util.BoundingBox box = block.getBoundingBox();
+                                if (playerMaxX > box.getMinX() && playerMinX < box.getMaxX() &&
+                                    playerMaxZ > box.getMinZ() && playerMinZ < box.getMaxZ()) {
+                                    double diff = playerFeetY - box.getMaxY();
+                                    if (diff >= -0.05 && diff <= 0.60) {
+                                        return true;
+                                    }
+                                }
+                            } catch (Throwable t) {
+                                double blockTopY = y + 1.0;
+                                double diff = playerFeetY - blockTopY;
+                                if (diff >= -0.05 && diff <= 0.60) {
+                                    return true;
+                                }
                             }
-                        }
-                    } catch (Throwable t) {
-                        double blockTopY = y + 1.0;
-                        double diff = playerFeetY - blockTopY;
-                        if (diff >= -0.05 && diff <= 0.60) {
-                            return true;
-                        }
+                        } catch (Throwable ignored) {}
                     }
                 }
             }
-        }
+        } catch (Throwable ignored) {}
         return false;
     }
 
     private void checkSurroundingBlocks(Player player, Location loc) {
         if (loc.getWorld() == null || !isRegionSafe(loc)) return;
-        this.inWater = player.isInWater() || loc.getBlock().isLiquid() || player.getEyeLocation().getBlock().isLiquid();
-        this.inLava = false;
-        this.inWeb = false;
-        this.onClimbable = false;
-        this.onSlime = false;
-        this.onBed = false;
-        this.onIce = false;
-        this.onSoulSand = false;
+        try {
+            boolean inLiquidLoc = false;
+            try {
+                if (isRegionSafe(loc)) {
+                    inLiquidLoc = loc.getBlock().isLiquid();
+                }
+            } catch (Throwable ignored) {}
 
-        int minX = (int) Math.floor(loc.getX() - 0.35);
-        int maxX = (int) Math.floor(loc.getX() + 0.35);
-        int minY = (int) Math.floor(loc.getY() - 0.8);
-        int maxY = (int) Math.floor(loc.getY() + 1.8);
-        int minZ = (int) Math.floor(loc.getZ() - 0.35);
-        int maxZ = (int) Math.floor(loc.getZ() + 0.35);
+            boolean inLiquidEye = false;
+            try {
+                Location eyeLoc = player.getEyeLocation();
+                if (isRegionSafe(eyeLoc)) {
+                    inLiquidEye = eyeLoc.getBlock().isLiquid();
+                }
+            } catch (Throwable ignored) {}
 
-        for (int x = minX; x <= maxX; x++) {
-            for (int y = minY; y <= maxY; y++) {
-                for (int z = minZ; z <= maxZ; z++) {
-                    Block block = loc.getWorld().getBlockAt(x, y, z);
-                    Material mat = block.getType();
+            this.inWater = player.isInWater() || inLiquidLoc || inLiquidEye;
+            this.inLava = false;
+            this.inWeb = false;
+            this.onClimbable = false;
+            this.onSlime = false;
+            this.onBed = false;
+            this.onIce = false;
+            this.onSoulSand = false;
 
-                    if (mat == Material.WATER || mat == Material.BUBBLE_COLUMN) this.inWater = true;
-                    if (mat == Material.LAVA) this.inLava = true;
-                    if (mat == Material.COBWEB) this.inWeb = true;
-                    if (mat == Material.LADDER || mat == Material.VINE || mat == Material.SCAFFOLDING
-                            || mat == Material.WEEPING_VINES || mat == Material.TWISTING_VINES
-                            || mat == Material.WEEPING_VINES_PLANT || mat == Material.TWISTING_VINES_PLANT
-                            || mat == Material.CAVE_VINES || mat == Material.CAVE_VINES_PLANT) {
-                        this.onClimbable = true;
-                    }
-                    if (mat == Material.SLIME_BLOCK) {
-                        this.onSlime = true;
-                        this.bouncedOnSlime = true;
-                        this.slimeBounceTicks = 140;
-                        this.totalAirAscent = 0.0;
-                    }
-                    if (mat.name().endsWith("_BED")) {
-                        this.onBed = true;
-                        this.bouncedOnBed = true;
-                        this.bedBounceTicks = 60;
-                        this.totalAirAscent = 0.0;
-                    }
-                    if (mat == Material.ICE || mat == Material.PACKED_ICE || mat == Material.BLUE_ICE || mat == Material.FROSTED_ICE) {
-                        this.onIce = true;
-                        this.iceTicks = 25;
-                    }
-                    if (mat == Material.SOUL_SAND || mat == Material.SOUL_SOIL) {
-                        this.onSoulSand = true;
-                        this.soulSandTicks = 15;
+            int minX = (int) Math.floor(loc.getX() - 0.35);
+            int maxX = (int) Math.floor(loc.getX() + 0.35);
+            int minY = (int) Math.floor(loc.getY() - 0.8);
+            int maxY = (int) Math.floor(loc.getY() + 1.8);
+            int minZ = (int) Math.floor(loc.getZ() - 0.35);
+            int maxZ = (int) Math.floor(loc.getZ() + 0.35);
+
+            for (int x = minX; x <= maxX; x++) {
+                for (int y = minY; y <= maxY; y++) {
+                    for (int z = minZ; z <= maxZ; z++) {
+                        try {
+                            Location bLoc = new Location(loc.getWorld(), x, y, z);
+                            if (!isRegionSafe(bLoc)) continue;
+                            Block block = loc.getWorld().getBlockAt(x, y, z);
+                            Material mat = block.getType();
+
+                            if (mat == Material.WATER || mat == Material.BUBBLE_COLUMN) this.inWater = true;
+                            if (mat == Material.LAVA) this.inLava = true;
+                            if (mat == Material.COBWEB) this.inWeb = true;
+                            if (mat == Material.LADDER || mat == Material.VINE || mat == Material.SCAFFOLDING
+                                    || mat == Material.WEEPING_VINES || mat == Material.TWISTING_VINES
+                                    || mat == Material.WEEPING_VINES_PLANT || mat == Material.TWISTING_VINES_PLANT
+                                    || mat == Material.CAVE_VINES || mat == Material.CAVE_VINES_PLANT) {
+                                this.onClimbable = true;
+                            }
+                            if (mat == Material.SLIME_BLOCK) {
+                                this.onSlime = true;
+                                this.bouncedOnSlime = true;
+                                this.slimeBounceTicks = 140;
+                                this.totalAirAscent = 0.0;
+                            }
+                            if (mat.name().endsWith("_BED")) {
+                                this.onBed = true;
+                                this.bouncedOnBed = true;
+                                this.bedBounceTicks = 60;
+                                this.totalAirAscent = 0.0;
+                            }
+                            if (mat == Material.ICE || mat == Material.PACKED_ICE || mat == Material.BLUE_ICE || mat == Material.FROSTED_ICE) {
+                                this.onIce = true;
+                                this.iceTicks = 25;
+                            }
+                            if (mat == Material.SOUL_SAND || mat == Material.SOUL_SOIL) {
+                                this.onSoulSand = true;
+                                this.soulSandTicks = 15;
+                            }
+                        } catch (Throwable ignored) {}
                     }
                 }
             }
-        }
 
-        boolean foundCeiling = false;
-        int ceilMinY = (int) Math.floor(loc.getY() + 1.7);
-        int ceilMaxY = (int) Math.floor(loc.getY() + 2.5);
-        for (int x = minX; x <= maxX; x++) {
-            for (int y = ceilMinY; y <= ceilMaxY; y++) {
-                for (int z = minZ; z <= maxZ; z++) {
-                    Block ceilBlock = loc.getWorld().getBlockAt(x, y, z);
-                    if (ceilBlock.getType().isSolid() && !ceilBlock.isPassable()) {
-                        foundCeiling = true;
-                        break;
+            boolean foundCeiling = false;
+            int ceilMinY = (int) Math.floor(loc.getY() + 1.7);
+            int ceilMaxY = (int) Math.floor(loc.getY() + 2.5);
+            for (int x = minX; x <= maxX; x++) {
+                for (int y = ceilMinY; y <= ceilMaxY; y++) {
+                    for (int z = minZ; z <= maxZ; z++) {
+                        try {
+                            Location bLoc = new Location(loc.getWorld(), x, y, z);
+                            if (!isRegionSafe(bLoc)) continue;
+                            Block ceilBlock = loc.getWorld().getBlockAt(x, y, z);
+                            if (ceilBlock.getType().isSolid() && !ceilBlock.isPassable()) {
+                                foundCeiling = true;
+                                break;
+                            }
+                        } catch (Throwable ignored) {}
                     }
+                    if (foundCeiling) break;
                 }
                 if (foundCeiling) break;
             }
-            if (foundCeiling) break;
-        }
-        this.underLowCeiling = foundCeiling;
-        if (foundCeiling) {
-            this.ceilingTicks = 20;
-        }
+            this.underLowCeiling = foundCeiling;
+            if (foundCeiling) {
+                this.ceilingTicks = 20;
+            }
 
-        boolean foundWall = false;
-        int bodyMinY = (int) Math.floor(loc.getY() + 0.1);
-        int bodyMaxY = (int) Math.floor(loc.getY() + 1.5);
-        for (int x = minX; x <= maxX; x++) {
-            for (int y = bodyMinY; y <= bodyMaxY; y++) {
-                for (int z = minZ; z <= maxZ; z++) {
-                    Block b = loc.getWorld().getBlockAt(x, y, z);
-                    if (b.getType().isSolid() && !b.isPassable()) {
-                        foundWall = true;
-                        break;
+            boolean foundWall = false;
+            int bodyMinY = (int) Math.floor(loc.getY() + 0.1);
+            int bodyMaxY = (int) Math.floor(loc.getY() + 1.5);
+            for (int x = minX; x <= maxX; x++) {
+                for (int y = bodyMinY; y <= bodyMaxY; y++) {
+                    for (int z = minZ; z <= maxZ; z++) {
+                        try {
+                            Location bLoc = new Location(loc.getWorld(), x, y, z);
+                            if (!isRegionSafe(bLoc)) continue;
+                            Block b = loc.getWorld().getBlockAt(x, y, z);
+                            if (b.getType().isSolid() && !b.isPassable()) {
+                                foundWall = true;
+                                break;
+                            }
+                        } catch (Throwable ignored) {}
                     }
+                    if (foundWall) break;
                 }
                 if (foundWall) break;
             }
-            if (foundWall) break;
-        }
-        this.nearWall = foundWall;
-        if (foundWall) {
-            this.wallTicks = 15;
-        }
+            this.nearWall = foundWall;
+            if (foundWall) {
+                this.wallTicks = 15;
+            }
+        } catch (Throwable ignored) {}
     }
 
     private void recordSample(Player player, Location loc) {

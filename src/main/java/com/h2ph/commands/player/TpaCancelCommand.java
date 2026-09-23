@@ -1,5 +1,6 @@
 package com.h2ph.commands.player;
 
+import com.h2ph.Falcon;
 import com.h2ph.managers.TpaRequestManager;
 import org.bukkit.ChatColor;
 import org.bukkit.Sound;
@@ -36,8 +37,8 @@ public class TpaCancelCommand implements CommandExecutor, TabCompleter {
             } else {
                 String msg = ChatColor.translateAlternateColorCodes('&',
                         "&cThat player is not online or does not exist.");
-                org.bukkit.OfflinePlayer offlineTarget = org.bukkit.Bukkit.getOfflinePlayer(args[0]);
-                if (offlineTarget.hasPlayedBefore()) {
+                boolean exists = Falcon.getInstance().getPlayerNameCache().playerExists(args[0]);
+                if (exists) {
                     msg = ChatColor.translateAlternateColorCodes('&', "&cThat player is not online.");
                 } else {
                     msg = ChatColor.translateAlternateColorCodes('&', "&cThat player does not exist.");

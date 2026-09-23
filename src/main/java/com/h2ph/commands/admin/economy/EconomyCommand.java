@@ -144,9 +144,9 @@ public class EconomyCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        OfflinePlayer target = Bukkit.getOfflinePlayer(targetName);
+        OfflinePlayer target = plugin.getPlayerNameCache().getOfflinePlayer(targetName);
 
-        if (!target.hasPlayedBefore() && !target.isOnline()) {
+        if (target == null) {
             sender.sendMessage(ChatColor.translateAlternateColorCodes('&',
                     getMessage("player-not-found", "&cThat user does not exist.")));
             playSound(sender, getSound("error", org.bukkit.Sound.ENTITY_VILLAGER_NO));

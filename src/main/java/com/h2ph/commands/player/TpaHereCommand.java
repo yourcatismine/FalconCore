@@ -54,8 +54,8 @@ public class TpaHereCommand implements CommandExecutor, TabCompleter {
             if (target != null) {
                 msg = ChatColor.translateAlternateColorCodes('&', "&cThis user is not online.");
             } else {
-                org.bukkit.OfflinePlayer offlineTarget = Bukkit.getOfflinePlayer(targetName);
-                if (offlineTarget.hasPlayedBefore()) {
+                boolean exists = Falcon.getInstance().getPlayerNameCache().playerExists(targetName);
+                if (exists) {
                     msg = ChatColor.translateAlternateColorCodes('&', "&cThis user is not online.");
                 } else {
                     msg = ChatColor.translateAlternateColorCodes('&', "&cThat player does not exist.");

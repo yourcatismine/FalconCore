@@ -16,6 +16,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
@@ -103,7 +104,7 @@ public class BaltopCommand implements CommandExecutor, Listener {
 
     private void openLoadingGUI(Player player) {
         String title = ChatColor.translateAlternateColorCodes('&', "&8ᴍᴏѕᴛ ᴍᴏɴᴇʏ (loading...)");
-        Inventory gui = Bukkit.createInventory(null, 54, title);
+        Inventory gui = Bukkit.createInventory(new BaltopHolder(1, 1), 54, title);
 
         ItemStack loading = new ItemStack(Material.CLOCK);
         ItemMeta meta = loading.getItemMeta();
@@ -186,8 +187,7 @@ public class BaltopCommand implements CommandExecutor, Listener {
 
                 int itemsPerPage = 45;
                 int totalPlayers = rankedEntries.size();
-                int totalPages = (int) Math.ceil((double) totalPlayers / itemsPerPage);
-                if (totalPages == 0) totalPages = 1;
+                int totalPages = Math.max(1, (int) Math.ceil((double) totalPlayers / itemsPerPage));
 
                 int finalPage = Math.max(1, Math.min(page, totalPages));
                 int startIndex = (finalPage - 1) * itemsPerPage;
@@ -216,7 +216,7 @@ public class BaltopCommand implements CommandExecutor, Listener {
                 ItemStack selfHead = createSelfHeadItem(player, balance, rankDisplay);
 
                 String title = ChatColor.translateAlternateColorCodes('&', "&8ᴍᴏѕᴛ ᴍᴏɴᴇʏ (Page " + finalPage + "/" + totalPages + ")");
-                Inventory gui = Bukkit.createInventory(null, 54, title);
+                Inventory gui = Bukkit.createInventory(new BaltopHolder(finalPage, totalPages), 54, title);
 
                 for (int s = 0; s < 54; s++) {
                     gui.setItem(s, null);
@@ -229,9 +229,13 @@ public class BaltopCommand implements CommandExecutor, Listener {
 
                 if (finalPage > 1) {
                     gui.setItem(45, createKeyItem(Material.ARROW, "&aPrevious Page", "&7Click to switch page"));
+                } else {
+                    gui.setItem(45, null);
                 }
                 if (finalPage < totalPages) {
                     gui.setItem(53, createKeyItem(Material.ARROW, "&aNext Page", "&7Click to switch page"));
+                } else {
+                    gui.setItem(53, null);
                 }
 
                 gui.setItem(48, selfHead);
@@ -246,15 +250,6 @@ public class BaltopCommand implements CommandExecutor, Listener {
                     }
 
                     playerPages.put(playerUuid, finalPage);
-
-                    String currentTitle = player.getOpenInventory().getTitle();
-                    if (currentTitle != null && currentTitle.startsWith(ChatColor.translateAlternateColorCodes('&', "&8ᴍᴏѕᴛ ᴍᴏɴᴇʏ"))) {
-                        if (currentTitle.equals(title)) {
-                            player.getOpenInventory().getTopInventory().setContents(gui.getContents());
-                            return;
-                        }
-                    }
-
                     player.openInventory(gui);
                 });
             } catch (Exception e) {
@@ -280,10 +275,16 @@ public class BaltopCommand implements CommandExecutor, Listener {
                     if (entry.uuid != null) {
                         Player online = Bukkit.getPlayer(entry.uuid);
                         if (online != null) {
-                            meta.setOwningPlayer(online);
+                            meta.setPlayerProfile(online.getPlayerProfile());
                         } else {
-                            OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(entry.uuid);
-                            meta.setOwningPlayer(offlinePlayer);
+                            try {
+                                com.destroystokyo.paper.profile.PlayerProfile profile = Bukkit.createProfile(entry.uuid, entry.name);
+                                profile.complete(true);
+                                meta.setPlayerProfile(profile);
+                            } catch (Throwable t) {
+                                OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(entry.uuid);
+                                meta.setOwningPlayer(offlinePlayer);
+                            }
                         }
                     }
                     head.setItemMeta(meta);
@@ -320,10 +321,15 @@ public class BaltopCommand implements CommandExecutor, Listener {
             SkullMeta selfMeta = (SkullMeta) selfHead.getItemMeta();
             if (selfMeta != null) {
                 try {
-                    selfMeta.setOwningPlayer(player);
+                    selfMeta.setPlayerProfile(player.getPlayerProfile());
                     selfHead.setItemMeta(selfMeta);
                     baseHeadCache.put(player.getUniqueId(), selfHead.clone());
-                } catch (Exception ignored) {}
+                } catch (Throwable ignored) {
+                    try {
+                        selfMeta.setOwningPlayer(player);
+                        selfHead.setItemMeta(selfMeta);
+                    } catch (Throwable ignored2) {}
+                }
             }
         }
 
@@ -341,9 +347,11 @@ public class BaltopCommand implements CommandExecutor, Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        String title = event.getView().getTitle();
+        Inventory clickedInv = event.getClickedInventory();
+        if (clickedInv == null) return;
 
-        if (!title.startsWith(ChatColor.translateAlternateColorCodes('&', "&8ᴍᴏѕᴛ ᴍᴏɴᴇʏ"))) {
+        Inventory topInv = event.getView().getTopInventory();
+        if (topInv == null || !(topInv.getHolder() instanceof BaltopHolder)) {
             return;
         }
 
@@ -352,9 +360,8 @@ public class BaltopCommand implements CommandExecutor, Listener {
         if (!(event.getWhoClicked() instanceof Player))
             return;
         Player player = (Player) event.getWhoClicked();
-        Inventory clickedInv = event.getClickedInventory();
 
-        if (clickedInv == null || !clickedInv.equals(event.getView().getTopInventory())) {
+        if (!clickedInv.equals(topInv)) {
             return;
         }
 
@@ -370,28 +377,43 @@ public class BaltopCommand implements CommandExecutor, Listener {
             return;
         }
 
-        int currentPage = playerPages.getOrDefault(player.getUniqueId(), 1);
+        BaltopHolder holder = (BaltopHolder) topInv.getHolder();
+        int currentPage = holder != null ? holder.getPage() : playerPages.getOrDefault(player.getUniqueId(), 1);
+        int totalPages = holder != null ? holder.getTotalPages() : 1;
 
         if (event.getSlot() == 45 && item.getType() == Material.ARROW) {
+            if (currentPage <= 1) {
+                topInv.setItem(45, null);
+                event.setCurrentItem(null);
+                player.updateInventory();
+                return;
+            }
             int targetPage = Math.max(1, currentPage - 1);
             playerPages.put(player.getUniqueId(), targetPage);
-            loadDataAsync(player, targetPage, false);
             playSound(player, getSound("button-click", Sound.UI_BUTTON_CLICK));
+            loadDataAsync(player, targetPage, false);
         } else if (event.getSlot() == 53 && item.getType() == Material.ARROW) {
+            if (currentPage >= totalPages) {
+                topInv.setItem(53, null);
+                event.setCurrentItem(null);
+                player.updateInventory();
+                return;
+            }
             int targetPage = currentPage + 1;
             playerPages.put(player.getUniqueId(), targetPage);
-            loadDataAsync(player, targetPage, false);
             playSound(player, getSound("button-click", Sound.UI_BUTTON_CLICK));
+            loadDataAsync(player, targetPage, false);
         } else if (event.getSlot() == 49 && item.getType() == Material.EMERALD) {
             long now = System.currentTimeMillis();
             long last = refreshCooldowns.getOrDefault(player.getUniqueId(), 0L);
-            if (now - last < 400) {
+            if (now - last < 1000) {
                 return;
             }
             refreshCooldowns.put(player.getUniqueId(), now);
-            loadDataAsync(player, currentPage, true);
             playSound(player, getSound("button-click", Sound.UI_BUTTON_CLICK));
+            loadDataAsync(player, currentPage, true);
         } else if (event.getSlot() == 50 && item.getType() == Material.OAK_SIGN) {
+            playSound(player, getSound("button-click", Sound.UI_BUTTON_CLICK));
             player.closeInventory();
             plugin.getSignInput().getSearchInput(player, (input) -> {
                 String term = input != null ? input.trim() : "";
@@ -403,7 +425,6 @@ public class BaltopCommand implements CommandExecutor, Listener {
                 playerPages.put(player.getUniqueId(), 1);
                 loadDataAsync(player, 1, false);
             });
-            playSound(player, getSound("button-click", Sound.UI_BUTTON_CLICK));
         }
     }
 
@@ -430,6 +451,9 @@ public class BaltopCommand implements CommandExecutor, Listener {
     }
 
     private void playSound(Player player, Sound sound) {
+        if (sound == null || sound == Sound.UI_BUTTON_CLICK) {
+            return;
+        }
         try {
             player.playSound(player.getLocation(), sound, 1f, 1f);
         } catch (Exception ignored) {
@@ -456,5 +480,36 @@ public class BaltopCommand implements CommandExecutor, Listener {
         double scaled = number / divisor;
         scaled = Math.floor(scaled * 10) / 10.0;
         return DF.format(scaled) + suffix;
+    }
+
+    public static class BaltopHolder implements InventoryHolder {
+        private int page;
+        private int totalPages;
+
+        public BaltopHolder(int page, int totalPages) {
+            this.page = page;
+            this.totalPages = totalPages;
+        }
+
+        public int getPage() {
+            return page;
+        }
+
+        public void setPage(int page) {
+            this.page = page;
+        }
+
+        public int getTotalPages() {
+            return totalPages;
+        }
+
+        public void setTotalPages(int totalPages) {
+            this.totalPages = totalPages;
+        }
+
+        @Override
+        public @NotNull Inventory getInventory() {
+            return null;
+        }
     }
 }

@@ -62,9 +62,30 @@ public class CombatListener implements Listener {
     public boolean isInCombat(Player p) {
         if (p == null)
             return false;
-        if (p.hasPermission("falcon.combat.bypass") || p.hasPermission("falcon.combat.bypass"))
+        if (p.hasPermission("falcon.combat.bypass"))
+            return false;
+        if (isDuelPlayer(p))
             return false;
         return remaining.containsKey(p.getUniqueId());
+    }
+
+    public boolean isDuelPlayer(Player p) {
+        if (p == null) return false;
+        try {
+            if (plugin.getDuelArenaManager() != null) {
+                com.h2ph.commands.admin.duels.DuelArenaManager duels = plugin.getDuelArenaManager();
+                if (duels.isInDuel(p) || duels.isPreDuel(p) || duels.isLooting(p) || duels.isSoloTest(p) || duels.isLocationInArena(p.getLocation())) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    public void stopCombat(Player p) {
+        if (p == null) return;
+        cancelTask(p.getUniqueId());
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -223,6 +244,9 @@ public class CombatListener implements Listener {
         if (victim.getGameMode() == GameMode.CREATIVE || attacker.getGameMode() == GameMode.CREATIVE)
             return false;
 
+        if (isDuelPlayer(victim) || isDuelPlayer(attacker))
+            return false;
+
         try {
             if (plugin.getAfkManager() != null) {
                 if (plugin.getAfkManager().getRegionAt(victim.getLocation()) != null)
@@ -331,6 +355,9 @@ public class CombatListener implements Listener {
     @EventHandler(priority = org.bukkit.event.EventPriority.LOWEST)
     public void onQuit(PlayerQuitEvent e) {
         Player p = e.getPlayer();
+        if (isDuelPlayer(p))
+            return;
+
         UUID uuid = p.getUniqueId();
         if (!remaining.containsKey(uuid))
             return;

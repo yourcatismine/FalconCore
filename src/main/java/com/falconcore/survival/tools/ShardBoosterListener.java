@@ -107,8 +107,15 @@ public class ShardBoosterListener implements Listener {
                     new net.md_5.bungee.api.chat.TextComponent(msg));
         }
 
-        boolean inAfkRegion = plugin.getAfkManager().getRegionAt(player.getLocation()) != null;
-        if (player.hasPermission("falcon.shards.passive") || inAfkRegion) {
+        boolean inAfkRegion = plugin.getAfkManager() != null && plugin.getAfkManager().getRegionAt(player.getLocation()) != null;
+        boolean inDuel = plugin.getDuelArenaManager() != null && (
+                plugin.getDuelArenaManager().isInDuel(player) ||
+                plugin.getDuelArenaManager().isPreDuel(player) ||
+                plugin.getDuelArenaManager().isLooting(player) ||
+                plugin.getDuelArenaManager().isSoloTest(player) ||
+                plugin.getDuelArenaManager().isLocationInArena(player.getLocation())
+        );
+        if (!inDuel && (player.hasPermission("falcon.shards.passive") || inAfkRegion)) {
             data.addShards(8, "Shard Booster Reward");
         }
 

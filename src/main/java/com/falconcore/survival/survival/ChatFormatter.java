@@ -42,14 +42,23 @@ public class ChatFormatter implements Listener {
         if (prefix == null) prefix = "";
 
         if (!enabled) {
-            String format = prefix.isEmpty() ? "&7%player_name%:&f %message%" : "%prefix%&7%player_name%:&f %message%";
+            String format = prefix.isEmpty() ? "\u00267%player_name%:\u0026f %message%" : "%prefix%\u00267%player_name%:\u0026f %message%";
             format = format.replace("%prefix%", prefix)
-                    .replace("%player_name%", player.getName())
-                    .replace("%message%", "%2$s");
-            event.setFormat(translateColorCodes(format));
+                    .replace("%player_name%", player.getName());
+            String translatedFormat = translateColorCodes(format);
+            String translatedMessage = event.getMessage();
 
-            if (plugin.getFalconBotManager() == null || 
-                    (!plugin.getFalconBotManager().isBot(player.getUniqueId()) && 
+            net.md_5.bungee.api.chat.BaseComponent[] fmtComp =
+                    net.md_5.bungee.api.chat.TextComponent.fromLegacyText(translatedFormat + translatedMessage);
+
+            event.setCancelled(true);
+            for (Player recipient : event.getRecipients()) {
+                recipient.spigot().sendMessage(fmtComp);
+            }
+            org.bukkit.Bukkit.getConsoleSender().spigot().sendMessage(fmtComp);
+
+            if (plugin.getFalconBotManager() == null ||
+                    (!plugin.getFalconBotManager().isBot(player.getUniqueId()) &&
                      !plugin.getFalconBotManager().isBot(player.getName()))) {
                 plugin.getDiscordWebhookManager().sendChatMessage(
                         player.getName(),

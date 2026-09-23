@@ -109,14 +109,15 @@ public class PayCommand implements CommandExecutor, TabCompleter {
             processPayment(player, target.getUniqueId(), target.getName(), amount);
         } else {
             plugin.getSchedulerAdapter().runTaskAsync(() -> {
-                OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(targetName);
-                if (!offlinePlayer.hasPlayedBefore() && !offlinePlayer.isOnline()) {
+                OfflinePlayer offlinePlayer = plugin.getPlayerNameCache().getOfflinePlayer(targetName);
+                if (offlinePlayer == null) {
                     plugin.getSchedulerAdapter().runTask(() -> {
                         sendError(player, getMessage("player-not-found", "&cThat player does not exist."));
                     });
                     return;
                 }
-                processPayment(player, offlinePlayer.getUniqueId(), offlinePlayer.getName(), amount);
+                String finalTargetName = offlinePlayer.getName() != null ? offlinePlayer.getName() : targetName;
+                processPayment(player, offlinePlayer.getUniqueId(), finalTargetName, amount);
             });
         }
 

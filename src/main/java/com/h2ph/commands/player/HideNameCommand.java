@@ -13,6 +13,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.server.TabCompleteEvent;
 import java.util.List;
 import java.util.ArrayList;
@@ -87,24 +88,20 @@ public class HideNameCommand implements CommandExecutor, Listener {
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onChat(AsyncPlayerChatEvent evt) {
-        if (plugin.getPlayerDataManager().get(evt.getPlayer().getUniqueId()).isNameHidden()) {
-            String message = evt.getMessage().trim();
-            Player player = evt.getPlayer();
-            String originalDisplayName = player.getDisplayName();
-            
-            if (message.equalsIgnoreCase("Hi") || message.equalsIgnoreCase("Hello")) {
-                return;
-            } else {
-                String playerName = player.getName();
-                String obfuscatedName = ChatColor.MAGIC + playerName;
-                String modifiedDisplayName = originalDisplayName.replace(playerName, obfuscatedName);
-                
-                player.setDisplayName(modifiedDisplayName);
-                
-                plugin.getSchedulerAdapter().runTask(() -> {
-                    player.setDisplayName(originalDisplayName);
-                });
-            }
+        // Display name obfuscation is handled by ChatFormatter/NametagManager.
+        // Do NOT temporarily mutate player display name here — if the player disconnects
+        // before the restore task fires, §k stays in the name and crashes 1.21+ chat
+        // component serialization on the quit packet (Disallowed chat character: '§').
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPlayerQuit(PlayerQuitEvent evt) {
+        Player player = evt.getPlayer();
+        // Safety net: always reset display name to plain name on disconnect so that
+        // §k obfuscation codes can never linger and crash the vanilla quit handling.
+        String displayName = player.getDisplayName();
+        if (displayName.contains("§") || displayName.contains("\u00a7")) {
+            player.setDisplayName(player.getName());
         }
     }
 

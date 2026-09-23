@@ -153,6 +153,157 @@ public class FalconPlaceholders extends PlaceholderExpansion {
             }
             return "0";
         }
+
+        if (params.equalsIgnoreCase("in_duel")) {
+            if (player.isOnline() && plugin.getDuelArenaManager() != null) {
+                org.bukkit.entity.Player p = player.getPlayer();
+                if (p != null && (plugin.getDuelArenaManager().isInDuel(p) || plugin.getDuelArenaManager().isPreDuel(p) || plugin.getDuelArenaManager().isLooting(p))) {
+                    return "true";
+                }
+            }
+            return "false";
+        }
+
+        if (params.equalsIgnoreCase("duel_opponent") || params.equalsIgnoreCase("duel_kalaban")) {
+            if (player.isOnline() && plugin.getDuelArenaManager() != null) {
+                org.bukkit.entity.Player p = player.getPlayer();
+                if (p != null) {
+                    org.bukkit.entity.Player opp = plugin.getDuelArenaManager().getOpponent(p);
+                    if (opp != null) return opp.getName();
+                    if (plugin.getDuelArenaManager().isSoloTest(p)) return "Solo Test";
+                }
+            }
+            return "None";
+        }
+
+        if (params.equalsIgnoreCase("duel_opponent_ping")) {
+            if (player.isOnline() && plugin.getDuelArenaManager() != null) {
+                org.bukkit.entity.Player p = player.getPlayer();
+                if (p != null) {
+                    org.bukkit.entity.Player opp = plugin.getDuelArenaManager().getOpponent(p);
+                    if (opp != null) return String.valueOf(opp.getPing());
+                    if (plugin.getDuelArenaManager().isSoloTest(p)) return String.valueOf(p.getPing());
+                }
+            }
+            return "0";
+        }
+
+        if (params.equalsIgnoreCase("duel_opponent_health")) {
+            if (player.isOnline() && plugin.getDuelArenaManager() != null) {
+                org.bukkit.entity.Player p = player.getPlayer();
+                if (p != null) {
+                    org.bukkit.entity.Player opp = plugin.getDuelArenaManager().getOpponent(p);
+                    if (opp != null) return String.format("%.1f", opp.getHealth());
+                }
+            }
+            return "0.0";
+        }
+
+        if (params.equalsIgnoreCase("duel_opponent_winrate")) {
+            if (player.isOnline() && plugin.getDuelArenaManager() != null) {
+                org.bukkit.entity.Player p = player.getPlayer();
+                if (p != null) {
+                    org.bukkit.entity.Player opp = plugin.getDuelArenaManager().getOpponent(p);
+                    if (opp != null && plugin.getDuelArenaManager().getStatsManager() != null) {
+                        return plugin.getDuelArenaManager().getStatsManager().getWinRate(opp.getUniqueId());
+                    }
+                }
+            }
+            return "0.00%";
+        }
+
+        if (params.equalsIgnoreCase("duel_winrate")) {
+            if (plugin.getDuelArenaManager() != null && plugin.getDuelArenaManager().getStatsManager() != null) {
+                return plugin.getDuelArenaManager().getStatsManager().getWinRate(player.getUniqueId());
+            }
+            return "0.00%";
+        }
+
+        if (params.equalsIgnoreCase("duel_win_chance") || params.equalsIgnoreCase("duel_win_percentage")) {
+            if (player.isOnline() && plugin.getDuelArenaManager() != null) {
+                org.bukkit.entity.Player p = player.getPlayer();
+                if (p != null) {
+                    org.bukkit.entity.Player opp = plugin.getDuelArenaManager().getOpponent(p);
+                    if (opp != null && plugin.getDuelArenaManager().getStatsManager() != null) {
+                        int w1 = plugin.getDuelArenaManager().getStatsManager().getWins(p.getUniqueId());
+                        int l1 = plugin.getDuelArenaManager().getStatsManager().getLosses(p.getUniqueId());
+                        int w2 = plugin.getDuelArenaManager().getStatsManager().getWins(opp.getUniqueId());
+                        int l2 = plugin.getDuelArenaManager().getStatsManager().getLosses(opp.getUniqueId());
+
+                        double r1 = (w1 + 1.0) / (w1 + l1 + 2.0);
+                        double r2 = (w2 + 1.0) / (w2 + l2 + 2.0);
+                        double chance = (r1 / (r1 + r2)) * 100.0;
+                        return String.format("%.1f%%", chance);
+                    }
+                }
+            }
+            return "50.0%";
+        }
+
+        if (params.equalsIgnoreCase("duel_time") || params.equalsIgnoreCase("duel_time_left")) {
+            if (player.isOnline() && plugin.getDuelArenaManager() != null) {
+                org.bukkit.entity.Player p = player.getPlayer();
+                if (p != null) {
+                    return plugin.getDuelArenaManager().getFormattedRemainingTime(p);
+                }
+            }
+            return "00:00";
+        }
+
+        if (params.equalsIgnoreCase("duel_time_elapsed")) {
+            if (player.isOnline() && plugin.getDuelArenaManager() != null) {
+                org.bukkit.entity.Player p = player.getPlayer();
+                if (p != null) {
+                    return plugin.getDuelArenaManager().getFormattedElapsedTime(p);
+                }
+            }
+            return "00:00";
+        }
+
+        if (params.equalsIgnoreCase("duel_arena")) {
+            if (player.isOnline() && plugin.getDuelArenaManager() != null) {
+                org.bukkit.entity.Player p = player.getPlayer();
+                if (p != null) {
+                    String arena = plugin.getDuelArenaManager().getArenaName(p);
+                    if (arena != null) return arena.replace(".yml", "");
+                }
+            }
+            return "None";
+        }
+
+        if (params.equalsIgnoreCase("duel_streak")) {
+            if (plugin.getDuelArenaManager() != null && plugin.getDuelArenaManager().getStatsManager() != null) {
+                return String.valueOf(plugin.getDuelArenaManager().getStatsManager().getStreak(player.getUniqueId()));
+            }
+            return "0";
+        }
+
+        if (params.equalsIgnoreCase("duel_opponent_streak")) {
+            if (player.isOnline() && plugin.getDuelArenaManager() != null) {
+                org.bukkit.entity.Player p = player.getPlayer();
+                if (p != null) {
+                    org.bukkit.entity.Player opp = plugin.getDuelArenaManager().getOpponent(p);
+                    if (opp != null && plugin.getDuelArenaManager().getStatsManager() != null) {
+                        return String.valueOf(plugin.getDuelArenaManager().getStatsManager().getStreak(opp.getUniqueId()));
+                    }
+                }
+            }
+            return "0";
+        }
+
+        if (params.equalsIgnoreCase("duel_wins")) {
+            if (plugin.getDuelArenaManager() != null && plugin.getDuelArenaManager().getStatsManager() != null) {
+                return String.valueOf(plugin.getDuelArenaManager().getStatsManager().getWins(player.getUniqueId()));
+            }
+            return "0";
+        }
+
+        if (params.equalsIgnoreCase("duel_losses")) {
+            if (plugin.getDuelArenaManager() != null && plugin.getDuelArenaManager().getStatsManager() != null) {
+                return String.valueOf(plugin.getDuelArenaManager().getStatsManager().getLosses(player.getUniqueId()));
+            }
+            return "0";
+        }
     
         if (params.toLowerCase().startsWith("balance_number_") || params.toLowerCase().startsWith("gettopmoney_")) {
             try {

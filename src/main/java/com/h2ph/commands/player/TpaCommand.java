@@ -53,15 +53,12 @@ public class TpaCommand implements CommandExecutor, TabCompleter {
 
         if (target == null || !p.canSee(target)) {
             Falcon.getInstance().getSchedulerAdapter().runTaskAsync(() -> {
-                org.bukkit.OfflinePlayer offlineTarget = Bukkit.getOfflinePlayer(targetName);
-                boolean exists = offlineTarget.hasPlayedBefore();
+                boolean exists = Falcon.getInstance().getPlayerNameCache().playerExists(targetName);
                 boolean isOnlineButHidden = (target != null);
 
                 Falcon.getInstance().getSchedulerAdapter().runTask(() -> {
                     String msg;
-                    if (isOnlineButHidden) {
-                        msg = ChatColor.translateAlternateColorCodes('&', "&cThis user is not online.");
-                    } else if (exists) {
+                    if (isOnlineButHidden || exists) {
                         msg = ChatColor.translateAlternateColorCodes('&', "&cThis user is not online.");
                     } else {
                         msg = ChatColor.translateAlternateColorCodes('&', "&cThat player does not exist.");

@@ -24,12 +24,12 @@ public class DuelGameListener implements Listener {
         }
 
         if (arenaManager.isInDuel(victim)) {
+            arenaManager.cacheSpectatorLocation(victim);
+
             if (arenaManager.isSoloTest(victim)) {
-                arenaManager.stopSoloTest(victim);
+                arenaManager.endSoloDuelOnDeath(victim);
                 return;
             }
-
-            arenaManager.cacheSpectatorLocation(victim);
 
             Player killer = victim.getKiller();
             Player opponent = arenaManager.getOpponent(victim);
@@ -63,7 +63,7 @@ public class DuelGameListener implements Listener {
                 event.setRespawnLocation(spawn);
             }
 
-            arenaManager.getPlugin().getSchedulerAdapter().runEntityTaskLater(player, () -> {
+            arenaManager.getPlugin().getSchedulerAdapter().runTaskLater(() -> {
                 if (player.isOnline()) {
                     player.setGameMode(org.bukkit.GameMode.SURVIVAL);
                 }
@@ -72,14 +72,23 @@ public class DuelGameListener implements Listener {
         }
 
         org.bukkit.Location spectateLoc = arenaManager.getSpectatorLocation(player);
-        if (spectateLoc != null) {
-            event.setRespawnLocation(spectateLoc);
-
+        if (spectateLoc != null || arenaManager.isSpectatingEnding(player)) {
+            if (spectateLoc != null) {
+                event.setRespawnLocation(spectateLoc);
+            }
             player.setGameMode(org.bukkit.GameMode.SPECTATOR);
 
-            arenaManager.getPlugin().getSchedulerAdapter().runEntityTaskLater(player, () -> {
-                player.setGameMode(org.bukkit.GameMode.SPECTATOR);
-            }, 1L);
+            java.util.UUID uuid = player.getUniqueId();
+            for (long delay : new long[]{1L, 2L, 5L, 10L}) {
+                arenaManager.getPlugin().getSchedulerAdapter().runTaskLater(() -> {
+                    Player pl = org.bukkit.Bukkit.getPlayer(uuid);
+                    if (pl != null && pl.isOnline() && arenaManager.isSpectatingEnding(pl)) {
+                        if (pl.getGameMode() != org.bukkit.GameMode.SPECTATOR) {
+                            pl.setGameMode(org.bukkit.GameMode.SPECTATOR);
+                        }
+                    }
+                }, delay);
+            }
         }
     }
 
@@ -98,18 +107,24 @@ public class DuelGameListener implements Listener {
 
             org.bukkit.Location target = arenaManager.getElevatorTarget(player);
             if (target != null) {
-                double dx = to.getX() - target.getX();
-                double dz = to.getZ() - target.getZ();
-                double distSq = dx * dx + dz * dz;
-                if (distSq > 1.4 * 1.4) {
-                    double angle = Math.atan2(dz, dx);
-                    double clampedX = target.getX() + Math.cos(angle) * 1.35;
-                    double clampedZ = target.getZ() + Math.sin(angle) * 1.35;
+                double centerX = target.getBlockX() + 0.5;
+                double centerZ = target.getBlockZ() + 0.5;
+
+                // Square 3x3 platform bounds (from -1.25 to +1.25 of center block)
+                double minX = centerX - 1.25;
+                double maxX = centerX + 1.25;
+                double minZ = centerZ - 1.25;
+                double maxZ = centerZ + 1.25;
+
+                double targetX = Math.max(minX, Math.min(maxX, to.getX()));
+                double targetZ = Math.max(minZ, Math.min(maxZ, to.getZ()));
+
+                if (targetX != to.getX() || targetZ != to.getZ()) {
                     org.bukkit.Location clamped = new org.bukkit.Location(
                             to.getWorld(),
-                            clampedX,
+                            targetX,
                             to.getY(),
-                            clampedZ,
+                            targetZ,
                             to.getYaw(),
                             to.getPitch()
                     );
@@ -121,7 +136,17 @@ public class DuelGameListener implements Listener {
 
         // If player is inside an arena but NOT participating in an active duel or looting:
         if (!arenaManager.isInDuel(player) && !arenaManager.isLooting(player)) {
-            if (arenaManager.getSpectatorLocation(player) != null || player.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
+            if (arenaManager.isSpectatingEnding(player) || arenaManager.getSpectatorLocation(player) != null || player.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
+                if (arenaManager.isSpectatingEnding(player) && player.getGameMode() != org.bukkit.GameMode.SPECTATOR) {
+                    player.setGameMode(org.bukkit.GameMode.SPECTATOR);
+                }
+                return;
+            }
+            if (player.hasPermission("falcon.duel") || player.hasPermission("falcon.admin") || player.isOp() || player.getGameMode() == org.bukkit.GameMode.CREATIVE) {
+                return;
+            }
+            com.falconcore.survival.manager.PlayerData data = arenaManager.getPlugin().getPlayerDataManager().get(player.getUniqueId());
+            if (data != null && data.isStaffMode()) {
                 return;
             }
             org.bukkit.Location to = event.getTo();
@@ -139,8 +164,19 @@ public class DuelGameListener implements Listener {
                 event.setCancelled(true);
                 return;
             }
+            if (arenaManager.isSpectatingEnding(player) || arenaManager.getSpectatorLocation(player) != null || player.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
+                event.setCancelled(true);
+                return;
+            }
             if (arenaManager.isLocationInArena(player.getLocation())) {
                 if (!arenaManager.isInDuel(player) && !arenaManager.isLooting(player)) {
+                    if (player.hasPermission("falcon.duel") || player.hasPermission("falcon.admin") || player.isOp() || player.getGameMode() == org.bukkit.GameMode.CREATIVE) {
+                        return;
+                    }
+                    com.falconcore.survival.manager.PlayerData data = arenaManager.getPlugin().getPlayerDataManager().get(player.getUniqueId());
+                    if (data != null && data.isStaffMode()) {
+                        return;
+                    }
                     event.setCancelled(true);
                     if (arenaManager.getSpectatorLocation(player) == null && player.getGameMode() != org.bukkit.GameMode.SPECTATOR) {
                         arenaManager.resetPlayer(player);
@@ -158,7 +194,18 @@ public class DuelGameListener implements Listener {
                 event.setCancelled(true);
                 return;
             }
+            if (arenaManager.isSpectatingEnding(victim) || arenaManager.getSpectatorLocation(victim) != null || victim.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
+                event.setCancelled(true);
+                return;
+            }
             if (arenaManager.isLocationInArena(victim.getLocation()) && !arenaManager.isInDuel(victim) && !arenaManager.isLooting(victim)) {
+                if (victim.hasPermission("falcon.duel") || victim.hasPermission("falcon.admin") || victim.isOp() || victim.getGameMode() == org.bukkit.GameMode.CREATIVE) {
+                    return;
+                }
+                com.falconcore.survival.manager.PlayerData data = arenaManager.getPlugin().getPlayerDataManager().get(victim.getUniqueId());
+                if (data != null && data.isStaffMode()) {
+                    return;
+                }
                 event.setCancelled(true);
                 if (arenaManager.getSpectatorLocation(victim) == null && victim.getGameMode() != org.bukkit.GameMode.SPECTATOR) {
                     arenaManager.resetPlayer(victim);
@@ -172,9 +219,22 @@ public class DuelGameListener implements Listener {
                 event.setCancelled(true);
                 return;
             }
-            if (arenaManager.isLocationInArena(damager.getLocation()) && !arenaManager.isInDuel(damager) && !arenaManager.isLooting(damager)) {
+            if (arenaManager.isSpectatingEnding(damager) || arenaManager.getSpectatorLocation(damager) != null || damager.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
                 event.setCancelled(true);
-                arenaManager.resetPlayer(damager);
+                return;
+            }
+            if (arenaManager.isLocationInArena(damager.getLocation()) && !arenaManager.isInDuel(damager) && !arenaManager.isLooting(damager)) {
+                if (damager.hasPermission("falcon.duel") || damager.hasPermission("falcon.admin") || damager.isOp() || damager.getGameMode() == org.bukkit.GameMode.CREATIVE) {
+                    return;
+                }
+                com.falconcore.survival.manager.PlayerData data = arenaManager.getPlugin().getPlayerDataManager().get(damager.getUniqueId());
+                if (data != null && data.isStaffMode()) {
+                    return;
+                }
+                event.setCancelled(true);
+                if (arenaManager.getSpectatorLocation(damager) == null && damager.getGameMode() != org.bukkit.GameMode.SPECTATOR) {
+                    arenaManager.resetPlayer(damager);
+                }
                 return;
             }
         }
@@ -194,6 +254,16 @@ public class DuelGameListener implements Listener {
         Player player = event.getPlayer();
         if (arenaManager.isPreDuel(player)) {
             event.setCancelled(true);
+            return;
+        }
+        if (player.getGameMode() == org.bukkit.GameMode.SPECTATOR || arenaManager.getSpectatorLocation(player) != null || arenaManager.isSpectatingEnding(player)) {
+            return;
+        }
+        if (player.hasPermission("falcon.duel") || player.hasPermission("falcon.admin") || player.isOp() || player.getGameMode() == org.bukkit.GameMode.CREATIVE) {
+            return;
+        }
+        com.falconcore.survival.manager.PlayerData data = arenaManager.getPlugin().getPlayerDataManager().get(player.getUniqueId());
+        if (data != null && data.isStaffMode()) {
             return;
         }
         if (event.getClickedBlock() != null && arenaManager.isLocationInArena(event.getClickedBlock().getLocation())) {
@@ -217,38 +287,47 @@ public class DuelGameListener implements Listener {
     @EventHandler
     public void onPlayerQuit(org.bukkit.event.player.PlayerQuitEvent event) {
         Player leaver = event.getPlayer();
-        if (arenaManager.isInDuel(leaver)) {
-            if (arenaManager.isSoloTest(leaver)) {
-                arenaManager.stopSoloTest(leaver);
-                return;
-            }
 
+        if (arenaManager.isSoloTest(leaver)) {
+            arenaManager.stopSoloTest(leaver);
+            return;
+        }
+
+        if (arenaManager.isSpectatingEnding(leaver) || arenaManager.isLooting(leaver) || arenaManager.isPreDuel(leaver) || arenaManager.isInDuel(leaver)) {
             arenaManager.cleanupElevator(leaver);
-            arenaManager.markForfeit(leaver);
-            arenaManager.markPendingSpawnReset(leaver.getUniqueId());
+            arenaManager.clearSpectatorLocation(leaver);
+            arenaManager.stopLooting(leaver);
+            arenaManager.cleanupPendings(leaver);
 
-            Player opponent = arenaManager.getOpponent(leaver);
+            if (arenaManager.isInDuel(leaver)) {
+                arenaManager.markForfeit(leaver);
+                arenaManager.markPendingSpawnReset(leaver.getUniqueId());
 
-            // Drop all inventory items naturally at leaver location for combat log (each item dropped exactly once)
-            org.bukkit.Location dropLoc = leaver.getLocation();
-            org.bukkit.World world = dropLoc.getWorld();
-            if (world != null) {
-                org.bukkit.inventory.ItemStack[] contents = leaver.getInventory().getContents();
-                for (int i = 0; i < contents.length; i++) {
-                    org.bukkit.inventory.ItemStack item = contents[i];
-                    if (item != null && item.getType() != org.bukkit.Material.AIR && item.getAmount() > 0) {
-                        world.dropItemNaturally(dropLoc, item.clone());
+                Player opponent = arenaManager.getOpponent(leaver);
+
+                // Drop all inventory items naturally at leaver location for combat log (each item dropped exactly once)
+                org.bukkit.Location dropLoc = leaver.getLocation();
+                org.bukkit.World world = dropLoc.getWorld();
+                if (world != null) {
+                    org.bukkit.inventory.ItemStack[] contents = leaver.getInventory().getContents();
+                    for (int i = 0; i < contents.length; i++) {
+                        org.bukkit.inventory.ItemStack item = contents[i];
+                        if (item != null && item.getType() != org.bukkit.Material.AIR && item.getAmount() > 0) {
+                            world.dropItemNaturally(dropLoc, item.clone());
+                        }
                     }
                 }
-            }
 
-            leaver.getInventory().clear();
-            leaver.getInventory().setArmorContents(new org.bukkit.inventory.ItemStack[4]);
-            leaver.getInventory().setItemInOffHand(null);
+                leaver.getInventory().clear();
+                leaver.getInventory().setArmorContents(new org.bukkit.inventory.ItemStack[4]);
+                leaver.getInventory().setItemInOffHand(null);
 
-            if (opponent != null && opponent.isOnline()) {
-                opponent.sendMessage(org.bukkit.ChatColor.RED + leaver.getName() + " left the match! You won by forfeit.");
-                arenaManager.endDuel(opponent, leaver, DuelArenaManager.WinReason.FORFEIT);
+                if (opponent != null && opponent.isOnline()) {
+                    opponent.sendMessage(org.bukkit.ChatColor.RED + leaver.getName() + " left the match! You won by forfeit.");
+                    arenaManager.endDuel(opponent, leaver, DuelArenaManager.WinReason.FORFEIT);
+                } else {
+                    arenaManager.resetPlayer(leaver);
+                }
             } else {
                 arenaManager.resetPlayer(leaver);
             }
@@ -258,6 +337,13 @@ public class DuelGameListener implements Listener {
     @EventHandler(priority = org.bukkit.event.EventPriority.HIGHEST)
     public void onPlayerSpawnLocation(org.spigotmc.event.player.PlayerSpawnLocationEvent event) {
         Player player = event.getPlayer();
+        if (player.hasPermission("falcon.duel") || player.hasPermission("falcon.admin") || player.isOp() || player.getGameMode() == org.bukkit.GameMode.CREATIVE) {
+            return;
+        }
+        com.falconcore.survival.manager.PlayerData data = arenaManager.getPlugin().getPlayerDataManager().get(player.getUniqueId());
+        if (data != null && data.isStaffMode()) {
+            return;
+        }
         if (arenaManager.isPendingSpawnReset(player.getUniqueId()) || arenaManager.isLocationInArena(event.getSpawnLocation())) {
             org.bukkit.Location mainSpawn = arenaManager.getMainSpawnLocation(event.getSpawnLocation().getWorld());
             if (mainSpawn != null) {
@@ -269,10 +355,15 @@ public class DuelGameListener implements Listener {
     @EventHandler(priority = org.bukkit.event.EventPriority.HIGHEST)
     public void onPlayerJoin(org.bukkit.event.player.PlayerJoinEvent event) {
         Player player = event.getPlayer();
-        boolean wasLeaver = arenaManager.isPendingSpawnReset(player.getUniqueId());
-        
+        java.util.UUID uuid = player.getUniqueId();
+        boolean wasLeaver = arenaManager.isPendingSpawnReset(uuid);
+
+        arenaManager.cleanupPendings(player);
+        arenaManager.clearSpectatorLocation(player);
+        arenaManager.cleanupElevator(player);
+
         if (wasLeaver) {
-            arenaManager.removePendingSpawnReset(player.getUniqueId());
+            arenaManager.removePendingSpawnReset(uuid);
             player.getInventory().clear();
             player.getInventory().setArmorContents(null);
             player.getInventory().setExtraContents(new org.bukkit.inventory.ItemStack[0]);
@@ -281,10 +372,16 @@ public class DuelGameListener implements Listener {
             player.setExp(0);
         }
 
-        arenaManager.clearSpectatorLocation(player);
-
         if (player.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
             player.setGameMode(org.bukkit.GameMode.SURVIVAL);
+        }
+
+        if (player.hasPermission("falcon.duel") || player.hasPermission("falcon.admin") || player.isOp() || player.getGameMode() == org.bukkit.GameMode.CREATIVE) {
+            return;
+        }
+        com.falconcore.survival.manager.PlayerData data = arenaManager.getPlugin().getPlayerDataManager().get(player.getUniqueId());
+        if (data != null && data.isStaffMode()) {
+            return;
         }
 
         if (wasLeaver || arenaManager.isLocationInArena(player.getLocation())) {
@@ -309,6 +406,14 @@ public class DuelGameListener implements Listener {
                     if (arenaManager.isLocationInArena(player.getLocation())) {
                         arenaManager.teleportToSpawn(player);
                     }
+                }
+            }, 5L);
+        }
+
+        if (arenaManager.getPlugin().getScoreboardManager() != null) {
+            arenaManager.getPlugin().getSchedulerAdapter().runEntityTaskLater(player, () -> {
+                if (player.isOnline()) {
+                    arenaManager.getPlugin().getScoreboardManager().reloadScoreboard(player);
                 }
             }, 5L);
         }
@@ -344,9 +449,16 @@ public class DuelGameListener implements Listener {
             event.setCancelled(true);
             return;
         }
+        if (player.getGameMode() == org.bukkit.GameMode.SPECTATOR || arenaManager.getSpectatorLocation(player) != null) {
+            event.setCancelled(true);
+            return;
+        }
         String arenaName = arenaManager.getArenaAt(event.getBlock().getLocation());
         if (arenaName != null) {
             if (!arenaManager.isInDuel(player) && !arenaManager.isLooting(player)) {
+                if (player.getGameMode() == org.bukkit.GameMode.CREATIVE && (player.hasPermission("falcon.duel") || player.hasPermission("falcon.admin") || player.isOp())) {
+                    return;
+                }
                 event.setCancelled(true);
                 arenaManager.resetPlayer(player);
                 return;
@@ -372,9 +484,16 @@ public class DuelGameListener implements Listener {
             event.setCancelled(true);
             return;
         }
+        if (player.getGameMode() == org.bukkit.GameMode.SPECTATOR || arenaManager.getSpectatorLocation(player) != null) {
+            event.setCancelled(true);
+            return;
+        }
         String arenaName = arenaManager.getArenaAt(event.getBlock().getLocation());
         if (arenaName != null) {
             if (!arenaManager.isInDuel(player) && !arenaManager.isLooting(player)) {
+                if (player.getGameMode() == org.bukkit.GameMode.CREATIVE && (player.hasPermission("falcon.duel") || player.hasPermission("falcon.admin") || player.isOp())) {
+                    return;
+                }
                 event.setCancelled(true);
                 arenaManager.resetPlayer(player);
                 return;
@@ -493,9 +612,21 @@ public class DuelGameListener implements Listener {
         }
     }
 
-    @EventHandler
+    @EventHandler(priority = org.bukkit.event.EventPriority.HIGHEST)
     public void onPlayerTeleport(org.bukkit.event.player.PlayerTeleportEvent event) {
         Player player = event.getPlayer();
+        if (arenaManager != null && arenaManager.isInternalTeleporting(player)) {
+            return;
+        }
+        if (arenaManager.isPreDuel(player)) {
+            if (event.getCause() == org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.ENDER_PEARL ||
+                    event.getCause() == org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.CHORUS_FRUIT ||
+                    event.getCause() == org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.COMMAND ||
+                    event.getCause() == org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN) {
+                event.setCancelled(true);
+                return;
+            }
+        }
         if (arenaManager.isLooting(player)) {
             if (event.getCause() != org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.ENDER_PEARL &&
                     event.getCause() != org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.CHORUS_FRUIT) {
@@ -504,42 +635,73 @@ public class DuelGameListener implements Listener {
         }
     }
 
-    @EventHandler
+    @EventHandler(priority = org.bukkit.event.EventPriority.HIGHEST)
+    public void onPlayerItemConsume(org.bukkit.event.player.PlayerItemConsumeEvent event) {
+        if (arenaManager.isPreDuel(event.getPlayer())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = org.bukkit.event.EventPriority.HIGHEST)
+    public void onPlayerDropItem(org.bukkit.event.player.PlayerDropItemEvent event) {
+        if (arenaManager.isPreDuel(event.getPlayer())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = org.bukkit.event.EventPriority.HIGHEST)
+    public void onPlayerSwapHandItems(org.bukkit.event.player.PlayerSwapHandItemsEvent event) {
+        if (arenaManager.isPreDuel(event.getPlayer())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = org.bukkit.event.EventPriority.HIGHEST)
+    public void onInventoryClick(org.bukkit.event.inventory.InventoryClickEvent event) {
+        if (event.getWhoClicked() instanceof Player) {
+            Player player = (Player) event.getWhoClicked();
+            if (arenaManager.isPreDuel(player)) {
+                event.setCancelled(true);
+            }
+        }
+    }
+
+    @EventHandler(priority = org.bukkit.event.EventPriority.HIGHEST)
+    public void onPlayerInteractEntity(org.bukkit.event.player.PlayerInteractEntityEvent event) {
+        if (arenaManager.isPreDuel(event.getPlayer())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = org.bukkit.event.EventPriority.LOWEST)
     public void onPlayerCommand(org.bukkit.event.player.PlayerCommandPreprocessEvent event) {
         Player player = event.getPlayer();
-        String msg = event.getMessage().toLowerCase();
 
-        if (msg.startsWith("/duel leave")) {
+        if (!arenaManager.isInDuel(player) && !arenaManager.isPreDuel(player) && !arenaManager.isLooting(player)) {
             return;
         }
 
-        if (arenaManager.isInDuel(player) || arenaManager.isLooting(player)) {
-            if (arenaManager.isCommandBanned(event.getMessage())) {
-                event.setCancelled(true);
-                String warning = arenaManager.getMessageManager().getMessage("cannot-use-command",
-                        "&cYou cannot use this command while on duels! Type &a/duel leave&c to left the match.");
-                player.sendMessage(warning);
-                player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
-                        new net.md_5.bungee.api.chat.TextComponent(warning));
-                try {
-                    player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_VILLAGER_NO, 1f, 1f);
-                } catch (Exception ignored) {
-                }
+        if (arenaManager.getPlugin() != null && arenaManager.getPlugin().getPlayerDataManager() != null) {
+            com.falconcore.survival.manager.PlayerData data = arenaManager.getPlugin().getPlayerDataManager().get(player.getUniqueId());
+            if ((player.isOp() || player.hasPermission("falcon.staffmode")) && data != null && data.isStaffMode()) {
                 return;
             }
         }
 
-        if (arenaManager.isInDuel(player)) {
-            if (arenaManager.isCommandIgnored(event.getMessage())) {
-                event.setCancelled(true);
-                String warning = arenaManager.getMessageManager().getMessage("cannot-use-command",
-                        "&cYou cannot use this command while on duels! Type &a/duel leave&c to left the match.");
-                player.sendMessage(warning);
-                try {
-                    player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_VILLAGER_NO, 1f, 1f);
-                } catch (Exception ignored) {
-                }
-            }
+        String msg = event.getMessage().trim().toLowerCase();
+        if (msg.startsWith("/duel leave") || msg.startsWith("/duels leave")
+                || msg.startsWith("/falcon:duel leave") || msg.startsWith("/falcon:duels leave")) {
+            return;
+        }
+
+        event.setCancelled(true);
+        String actionMsg = arenaManager.getMessageManager().getMessage("command-blocked-actionbar",
+                "&cCommands are disabled in duels! Type &a/duel leave &cto exit.");
+        player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                new net.md_5.bungee.api.chat.TextComponent(actionMsg));
+        try {
+            player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
+        } catch (Exception ignored) {
         }
     }
 }

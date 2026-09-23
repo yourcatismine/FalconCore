@@ -76,8 +76,8 @@ public class MsgCommand implements CommandExecutor, TabCompleter {
         if (target == null) {
             final String finalTargetName = targetName;
             com.h2ph.Falcon.getInstance().getSchedulerAdapter().runTaskAsync(() -> {
-                org.bukkit.OfflinePlayer offlineTarget = Bukkit.getOfflinePlayer(finalTargetName);
-                if (offlineTarget.hasPlayedBefore()) {
+                boolean exists = com.h2ph.Falcon.getInstance().getPlayerNameCache().playerExists(finalTargetName);
+                if (exists) {
                     String offlineMsg = ChatColor.RED + "This user is not online.";
                     player.sendMessage(offlineMsg);
                     player.sendActionBar(Component.text("This user is not online.", NamedTextColor.RED));

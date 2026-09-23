@@ -94,7 +94,17 @@ public class ShardsCommand implements CommandExecutor, TabCompleter {
 
         plugin.getSchedulerAdapter().runTaskAsync(() -> {
             try {
-                OfflinePlayer target = Bukkit.getOfflinePlayer(targetName);
+                OfflinePlayer target = plugin.getPlayerNameCache().getOfflinePlayer(targetName);
+                if (target == null) {
+                    plugin.getSchedulerAdapter().runTask(() -> {
+                        String errorMsg = ChatColor.RED + "That user does not exist.";
+                        sender.sendMessage(errorMsg);
+                        sender.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                                new net.md_5.bungee.api.chat.TextComponent(errorMsg));
+                        playSound(sender, org.bukkit.Sound.ENTITY_VILLAGER_NO);
+                    });
+                    return;
+                }
                 plugin.getSchedulerAdapter().runTask(() -> processShowShards(sender, target));
             } catch (Exception e) {
                 plugin.getSchedulerAdapter().runTask(() -> {
@@ -107,7 +117,7 @@ public class ShardsCommand implements CommandExecutor, TabCompleter {
     }
 
     private void processShowShards(Player sender, OfflinePlayer target) {
-        if (!target.hasPlayedBefore() && !target.isOnline()) {
+        if (target == null) {
             String errorMsg = ChatColor.RED + "That user does not exist.";
             sender.sendMessage(errorMsg);
             sender.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
@@ -212,7 +222,15 @@ public class ShardsCommand implements CommandExecutor, TabCompleter {
 
         plugin.getSchedulerAdapter().runTaskAsync(() -> {
             try {
-                OfflinePlayer target = Bukkit.getOfflinePlayer(targetName);
+                OfflinePlayer target = plugin.getPlayerNameCache().getOfflinePlayer(targetName);
+                if (target == null) {
+                    plugin.getSchedulerAdapter().runTask(() -> {
+                        String errorMsg = ChatColor.RED + "That player does not exist.";
+                        sender.sendMessage(errorMsg);
+                        playSound(sender, org.bukkit.Sound.ENTITY_VILLAGER_NO);
+                    });
+                    return;
+                }
                 plugin.getSchedulerAdapter().runTask(() -> processPay(sender, target, amount));
             } catch (Exception e) {
                 plugin.getSchedulerAdapter().runTask(() -> {
@@ -231,7 +249,7 @@ public class ShardsCommand implements CommandExecutor, TabCompleter {
             return;
         }
 
-        if (!target.hasPlayedBefore() && !target.isOnline()) {
+        if (target == null) {
             String errorMsg = ChatColor.RED + "That player does not exist.";
             sender.sendMessage(errorMsg);
             playSound(sender, org.bukkit.Sound.ENTITY_VILLAGER_NO);

@@ -42,9 +42,9 @@ public class WhereAmICommand implements CommandExecutor, TabCompleter {
 
         if (targetPlayer == null) {
             plugin.getSchedulerAdapter().runTaskAsync(() -> {
-                OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(targetName);
+                OfflinePlayer offlinePlayer = plugin.getPlayerNameCache().getOfflinePlayer(targetName);
                 
-                if (!offlinePlayer.hasPlayedBefore() && !offlinePlayer.isOnline()) {
+                if (offlinePlayer == null) {
                     plugin.getSchedulerAdapter().runEntityTask(player, () -> {
                         player.sendActionBar(LegacyComponentSerializer.legacyAmpersand().deserialize("&cThat player does not exist."));
                         try {

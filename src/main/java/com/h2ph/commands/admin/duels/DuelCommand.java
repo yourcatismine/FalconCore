@@ -1,16 +1,10 @@
 package com.h2ph.commands.admin.duels;
 
 import com.h2ph.Falcon;
-import com.sk89q.worldedit.IncompleteRegionException;
-import com.sk89q.worldedit.LocalSession;
-import com.sk89q.worldedit.WorldEdit;
-import com.sk89q.worldedit.bukkit.BukkitAdapter;
-import com.sk89q.worldedit.entity.Player;
-import com.sk89q.worldedit.math.BlockVector3;
-import com.sk89q.worldedit.regions.Region;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
+import org.bukkit.entity.Player;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -99,16 +93,32 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
             if (arenaManager.isLooting(player)) {
                 String msg = mm.getMessage("left-arena", "&7You left the arena.");
                 sender.sendMessage(msg);
-                player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
-                        new net.md_5.bungee.api.chat.TextComponent(msg));
+                try {
+                    player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                            net.md_5.bungee.api.chat.TextComponent.fromLegacyText(msg));
+                } catch (Throwable ignored) {}
                 arenaManager.stopLooting(player);
+                return true;
+            }
+
+            if (arenaManager.isSpectatingEnding(player) || arenaManager.isLocationInArena(player.getLocation())) {
+                arenaManager.cleanupPendings(player);
+                arenaManager.resetPlayer(player);
+                String msg = org.bukkit.ChatColor.GRAY + "You exited the duel.";
+                sender.sendMessage(msg);
+                try {
+                    player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                            net.md_5.bungee.api.chat.TextComponent.fromLegacyText(msg));
+                } catch (Throwable ignored) {}
                 return true;
             }
 
             String errorMsg = mm.getMessage("not-in-duel", "&cYou are not in a duel.");
             sender.sendMessage(errorMsg);
-            player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
-                    new net.md_5.bungee.api.chat.TextComponent(errorMsg));
+            try {
+                player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                        net.md_5.bungee.api.chat.TextComponent.fromLegacyText(errorMsg));
+            } catch (Throwable ignored) {}
             return true;
         } else if (subCommand.equals("stop")) {
             if (!(sender instanceof org.bukkit.entity.Player)) {
@@ -135,11 +145,17 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(ChatColor.RED + "You do not have permission to use this command.");
                 return true;
             }
-            if (args.length < 2) {
-                sender.sendMessage(ChatColor.RED + "Usage: /duel create <name>");
+            if (!(sender instanceof org.bukkit.entity.Player)) {
+                sender.sendMessage(ChatColor.RED + "Only players can use this command.");
                 return true;
             }
-            handleCreate(sender, args[1]);
+            org.bukkit.entity.Player player = (org.bukkit.entity.Player) sender;
+            if (args.length < 2) {
+                DuelGUIManager guiManager = new DuelGUIManager(plugin);
+                guiManager.openRegionsGUI(player);
+                return true;
+            }
+            handleCreate(player, args[1]);
             return true;
         } else if (subCommand.equals("settings")) {
             if (sender.hasPermission("falcon.duel")) {
@@ -202,12 +218,8 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
                 return true;
             }
             org.bukkit.entity.Player player = (org.bukkit.entity.Player) sender;
-            String biome = (args.length > 1) ? args[1] : "Random";
-            sender.sendMessage(ChatColor.GREEN + "Starting solo duel elevator test...");
-            boolean started = arenaManager.startSoloTestDuel(player, 5, biome);
-            if (!started) {
-                sender.sendMessage(ChatColor.RED + "No available duel arena found to test. Please check arena regions!");
-            }
+            String target = (args.length > 1) ? args[1] : null;
+            arenaManager.startSoloTestDuel(player, 5, target);
             return true;
         }
 
@@ -311,80 +323,90 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(ChatColor.RED + "/duel <player>");
         sender.sendMessage(ChatColor.RED + "/duel cancel");
         if (sender.hasPermission("falcon.duel")) {
-            sender.sendMessage(ChatColor.RED + "/duel create <name>");
+            sender.sendMessage(ChatColor.RED + "/duel create [world]");
             sender.sendMessage(ChatColor.RED + "/duel settings");
         }
     }
 
-    private void handleCreate(CommandSender sender, String name) {
-        if (!(sender instanceof org.bukkit.entity.Player)) {
-            sender.sendMessage(ChatColor.RED + "Only players can create duel regions.");
+    private void handleCreate(org.bukkit.entity.Player player, String worldName) {
+        org.bukkit.World world = Bukkit.getWorld(worldName);
+        DuelGUIManager guiManager = new DuelGUIManager(plugin);
+
+        if (world == null) {
+            player.sendMessage(ChatColor.RED + "World '" + worldName + "' not found. Opening world list...");
+            guiManager.openRegionsGUI(player);
             return;
         }
 
-        org.bukkit.entity.Player bukkitPlayer = (org.bukkit.entity.Player) sender;
+        File duelFile = new File(plugin.getDataFolder(), "survival/regions/duels/" + worldName + ".yml");
+        if (duelFile.exists()) {
+            player.sendMessage(ChatColor.YELLOW + "World '" + worldName + "' already configured. Opening settings...");
+            guiManager.openRegionSettingsGUI(player, worldName);
+            return;
+        }
+
+        if (!duelFile.getParentFile().exists()) {
+            duelFile.getParentFile().mkdirs();
+        }
 
         try {
-            Player worldEditPlayer = BukkitAdapter.adapt(bukkitPlayer);
-            LocalSession session = WorldEdit.getInstance().getSessionManager().get(worldEditPlayer);
-            Region region = session.getSelection(worldEditPlayer.getWorld());
-
-            if (region == null) {
-                sender.sendMessage(ChatColor.RED + "Please make a selection with WorldEdit first.");
-                return;
-            }
-
-            BlockVector3 min = region.getMinimumPoint();
-            BlockVector3 max = region.getMaximumPoint();
-            String worldName = bukkitPlayer.getWorld().getName();
-
-            File duelFile = new File(plugin.getDataFolder(), "survival/regions/duels/" + name + ".yml");
-            if (!duelFile.getParentFile().exists()) {
-                duelFile.getParentFile().mkdirs();
-            }
+            org.bukkit.Location spawn = world.getSpawnLocation();
+            int radius = 50;
+            int minX = spawn.getBlockX() - radius;
+            int maxX = spawn.getBlockX() + radius;
+            int minZ = spawn.getBlockZ() - radius;
+            int maxZ = spawn.getBlockZ() + radius;
+            int minY = world.getMinHeight();
+            int maxY = world.getMaxHeight();
 
             YamlConfiguration config = new YamlConfiguration();
             config.set("world", worldName);
-            config.set("min.x", min.getX());
-            config.set("min.y", min.getY());
-            config.set("min.z", min.getZ());
-            config.set("max.x", max.getX());
-            config.set("max.y", max.getY());
-            config.set("max.z", max.getZ());
-            config.set("created-by", bukkitPlayer.getName());
+            config.set("min.x", minX);
+            config.set("min.y", minY);
+            config.set("min.z", minZ);
+            config.set("max.x", maxX);
+            config.set("max.y", maxY);
+            config.set("max.z", maxZ);
+            config.set("border-radius", radius);
+            config.set("created-by", player.getName());
             config.set("created-at", System.currentTimeMillis());
+            config.set("looting-minutes", 5);
 
-            int minX = min.getX();
-            int maxX = max.getX();
-            int minY = min.getY();
-            int maxY = max.getY();
-            int minZ = min.getZ();
-            int maxZ = max.getZ();
-
-            int centerX = (minX + maxX) / 2;
-            int centerY = (minY + maxY) / 2;
-            int centerZ = (minZ + maxZ) / 2;
-            org.bukkit.block.Biome biome = bukkitPlayer.getWorld().getBiome(centerX, centerY, centerZ);
-
-            String biomeName = biome.name().toLowerCase();
-            biomeName = Character.toUpperCase(biomeName.charAt(0)) + biomeName.substring(1);
-
+            String biomeName = DuelGUIManager.getSpawnBiomeName(world);
             config.set("biome", biomeName);
 
+            int offset = Math.max(5, radius / 3);
+            int s1x = spawn.getBlockX() - offset;
+            int s1z = spawn.getBlockZ();
+            int s1y = world.getHighestBlockYAt(s1x, s1z) + 1;
+            config.set("spawn1.world", worldName);
+            config.set("spawn1.x", s1x);
+            config.set("spawn1.y", s1y);
+            config.set("spawn1.z", s1z);
+            config.set("spawn1.yaw", -90.0);
+            config.set("spawn1.pitch", 0.0);
+
+            int s2x = spawn.getBlockX() + offset;
+            int s2z = spawn.getBlockZ();
+            int s2y = world.getHighestBlockYAt(s2x, s2z) + 1;
+            config.set("spawn2.world", worldName);
+            config.set("spawn2.x", s2x);
+            config.set("spawn2.y", s2y);
+            config.set("spawn2.z", s2z);
+            config.set("spawn2.yaw", 90.0);
+            config.set("spawn2.pitch", 0.0);
+
             config.save(duelFile);
+            arenaManager.reloadArena(worldName);
 
-            arenaManager.reloadArena(name);
+            player.sendMessage(ChatColor.GREEN + "Duel region for " + ChatColor.YELLOW + worldName
+                    + ChatColor.GREEN + " created successfully with 100x100 border!");
+            player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 1f, 1f);
 
-            sender.sendMessage(ChatColor.GREEN + "Duel region " + ChatColor.YELLOW + name + ChatColor.GREEN
-                    + " saved successfully!");
-
-        } catch (IncompleteRegionException e) {
-            sender.sendMessage(ChatColor.RED + "Please make a complete selection (pos1 and pos2) first.");
+            guiManager.openRegionSettingsGUI(player, worldName);
         } catch (IOException e) {
-            sender.sendMessage(ChatColor.RED + "Failed to save duel file: " + e.getMessage());
+            player.sendMessage(ChatColor.RED + "Failed to save duel file: " + e.getMessage());
             e.printStackTrace();
-        } catch (NoClassDefFoundError e) {
-            sender.sendMessage(ChatColor.RED + "WorldEdit is not installed or not working properly.");
         }
     }
 
@@ -399,13 +421,6 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
         guiManager.openSettingsGUI(player);
     }
 
-    /*
-     * private ItemStack createItem(Material material, String name, String... lore)
-     * {
-     *
-     * }
-     */
-
     @Nullable
     @Override
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias,
@@ -416,8 +431,10 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
         if (args.length == 1) {
             if (sender instanceof org.bukkit.entity.Player) {
                 org.bukkit.entity.Player player = (org.bukkit.entity.Player) sender;
+                com.falconcore.survival.manager.PlayerData data = plugin.getPlayerDataManager().get(player.getUniqueId());
+                boolean isStaff = (player.isOp() || player.hasPermission("falcon.staffmode")) && data != null && data.isStaffMode();
 
-                if (arenaManager.isInDuel(player) || arenaManager.isLooting(player)) {
+                if (!isStaff && (arenaManager.isInDuel(player) || arenaManager.isLooting(player) || arenaManager.isPreDuel(player))) {
                     completions.add("leave");
                     return completions.stream()
                             .filter(s -> s.toLowerCase().startsWith(args[0].toLowerCase()))
@@ -461,8 +478,30 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
                     .collect(Collectors.toList());
         }
 
-        if (args.length == 2 && (args[0].equalsIgnoreCase("accept") || args[0].equalsIgnoreCase("decline"))) {
-            return null;
+        if (args.length == 2) {
+            if (args[0].equalsIgnoreCase("create") && sender.hasPermission("falcon.duel")) {
+                return Bukkit.getWorlds().stream()
+                        .map(org.bukkit.World::getName)
+                        .filter(w -> w.toLowerCase().startsWith(args[1].toLowerCase()))
+                        .collect(Collectors.toList());
+            }
+            if (args[0].equalsIgnoreCase("test") && sender.hasPermission("falcon.duel")) {
+                List<String> testOptions = new ArrayList<>();
+                if (arenaManager != null) {
+                    for (DuelArenaManager.ArenaRegion ar : arenaManager.getArenaRegions()) {
+                        if (ar != null && ar.name != null && !testOptions.contains(ar.name)) {
+                            testOptions.add(ar.name);
+                        }
+                    }
+                }
+                testOptions.addAll(Arrays.asList("Random", "Plains", "Desert", "Forest", "Nether", "End"));
+                return testOptions.stream()
+                        .filter(w -> w.toLowerCase().startsWith(args[1].toLowerCase()))
+                        .collect(Collectors.toList());
+            }
+            if (args[0].equalsIgnoreCase("accept") || args[0].equalsIgnoreCase("decline")) {
+                return null;
+            }
         }
 
         return Collections.emptyList();

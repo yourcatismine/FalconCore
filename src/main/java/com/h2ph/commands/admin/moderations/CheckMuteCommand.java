@@ -45,22 +45,13 @@ public class CheckMuteCommand implements CommandExecutor, TabCompleter {
         String targetName = args[0];
 
         plugin.getSchedulerAdapter().runTaskAsynchronously(() -> {
-            Player targetOnline = Bukkit.getPlayer(targetName);
-            UUID targetUUID;
-            String displayName;
-
-            if (targetOnline != null) {
-                targetUUID = targetOnline.getUniqueId();
-                displayName = targetOnline.getName();
-            } else {
-                OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(targetName);
-                if (!offlinePlayer.hasPlayedBefore() && !offlinePlayer.isOnline()) {
-                    sender.sendMessage(ChatColor.RED + "Player '" + targetName + "' has never played on this server.");
-                    return;
-                }
-                targetUUID = offlinePlayer.getUniqueId();
-                displayName = offlinePlayer.getName() != null ? offlinePlayer.getName() : targetName;
+            OfflinePlayer targetPlayer = plugin.getPlayerNameCache().getOfflinePlayer(targetName);
+            if (targetPlayer == null) {
+                sender.sendMessage(ChatColor.RED + "Player '" + targetName + "' has never played on this server.");
+                return;
             }
+            UUID targetUUID = targetPlayer.getUniqueId();
+            String displayName = targetPlayer.getName() != null ? targetPlayer.getName() : targetName;
 
             com.falconcore.survival.manager.DatabaseManager.MuteInfo muteInfo = plugin.getDatabaseManager()
                     .getMuteInfo(targetUUID);

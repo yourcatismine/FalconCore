@@ -63,27 +63,28 @@ public class BalanceCommand implements CommandExecutor, TabCompleter {
                 retrieveAndSendBalance(sender, target.getUniqueId(), target.getName(), false);
             } else {
                 plugin.getSchedulerAdapter().runTaskAsync(() -> {
-                    OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(targetName);
+                OfflinePlayer offlinePlayer = plugin.getPlayerNameCache().getOfflinePlayer(targetName);
 
-                    if (!offlinePlayer.hasPlayedBefore() && !offlinePlayer.isOnline()) {
-                        plugin.getSchedulerAdapter().runTask(() -> {
-                            String errorMsg = formatText(getMessage("player-not-found", "&cThat player does not exist."), targetName, 0);
-                            if (!errorMsg.isEmpty()) {
-                                sender.sendMessage(errorMsg);
+                if (offlinePlayer == null) {
+                    plugin.getSchedulerAdapter().runTask(() -> {
+                        String errorMsg = formatText(getMessage("player-not-found", "&cThat player does not exist."), targetName, 0);
+                        if (!errorMsg.isEmpty()) {
+                            sender.sendMessage(errorMsg);
+                        }
+                        if (sender instanceof Player) {
+                            Player p = (Player) sender;
+                            if (isActionBarEnabled() && !errorMsg.isEmpty()) {
+                                p.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(errorMsg));
                             }
-                            if (sender instanceof Player) {
-                                Player p = (Player) sender;
-                                if (isActionBarEnabled() && !errorMsg.isEmpty()) {
-                                    p.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(errorMsg));
-                                }
-                                playConfigSound(p, "player-not-found");
-                            }
-                        });
-                        return;
-                    }
+                            playConfigSound(p, "player-not-found");
+                        }
+                    });
+                    return;
+                }
 
-                    retrieveAndSendBalance(sender, offlinePlayer.getUniqueId(), offlinePlayer.getName(), false);
-                });
+                String finalTargetName = offlinePlayer.getName() != null ? offlinePlayer.getName() : targetName;
+                retrieveAndSendBalance(sender, offlinePlayer.getUniqueId(), finalTargetName, false);
+            });
             }
         }
         return true;

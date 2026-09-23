@@ -57,8 +57,7 @@ public class TpCommand implements CommandExecutor, TabCompleter {
         }
 
         Falcon.getInstance().getSchedulerAdapter().runTaskAsync(() -> {
-            org.bukkit.OfflinePlayer offlineTarget = Bukkit.getOfflinePlayer(targetName);
-            boolean exists = offlineTarget.hasPlayedBefore();
+            boolean exists = Falcon.getInstance().getPlayerNameCache().playerExists(targetName);
 
             Falcon.getInstance().getSchedulerAdapter().runTask(() -> {
                 if (!p.isOnline())

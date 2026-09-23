@@ -1889,14 +1889,23 @@ public class DatabaseManager {
         }
         CompletableFuture.supplyAsync(() -> {
             List<AltInfo> alts = new ArrayList<>();
-            String query = "SELECT pn.cached_name, ps.status FROM player_stats ps " +
-                    "JOIN player_names pn ON ps.uuid = pn.uuid " +
+            String query = "SELECT ps.uuid, pn.cached_name, ps.status FROM player_stats ps " +
+                    "LEFT JOIN player_names pn ON ps.uuid = pn.uuid " +
                     "WHERE ps.ip = ?";
             try (Connection conn = getConnection(); PreparedStatement ps = conn.prepareStatement(query)) {
                 ps.setString(1, ip);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
-                        alts.add(new AltInfo(rs.getString("cached_name"), rs.getString("status")));
+                        String name = rs.getString("cached_name");
+                        String uuidStr = rs.getString("uuid");
+                        if (name == null && uuidStr != null) {
+                            try {
+                                name = Falcon.getInstance().getPlayerNameCache().getPlayerName(UUID.fromString(uuidStr));
+                            } catch (Exception ignored) {
+                            }
+                        }
+                        if (name == null) name = uuidStr;
+                        alts.add(new AltInfo(name, rs.getString("status")));
                     }
                 }
             } catch (SQLException e) {

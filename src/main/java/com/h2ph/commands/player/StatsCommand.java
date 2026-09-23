@@ -52,10 +52,9 @@ public class StatsCommand implements CommandExecutor, Listener, TabCompleter {
                 fetchAndOpenSync(player, onlineTarget);
             } else {
                 plugin.getSchedulerAdapter().runTaskAsynchronously(() -> {
-                    @SuppressWarnings("deprecation")
-                    org.bukkit.OfflinePlayer check = Bukkit.getOfflinePlayer(targetName);
+                    org.bukkit.OfflinePlayer check = plugin.getPlayerNameCache().getOfflinePlayer(targetName);
 
-                    if (!check.hasPlayedBefore() && !check.isOnline()) {
+                    if (check == null) {
                         plugin.getSchedulerAdapter().runTask(() -> {
                             String errorMsg = ChatColor.translateAlternateColorCodes('&',
                                     "&cThat user does not exist.");

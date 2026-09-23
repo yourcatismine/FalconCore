@@ -698,6 +698,11 @@ public class OffendPlugin implements CommandExecutor, TabCompleter {
             return null;
         }
 
+        OfflinePlayer cachedPlayer = plugin.getPlayerNameCache().getOfflinePlayer(name);
+        if (cachedPlayer != null) {
+            return cachedPlayer;
+        }
+
         // 1. Check online players
         Player online = Bukkit.getPlayerExact(name);
         if (online != null) {

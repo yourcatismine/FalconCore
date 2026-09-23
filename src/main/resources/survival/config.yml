@@ -80,7 +80,6 @@ combat:
   - "team"
 
 disabled-fly:
-  - world
   - world_nether
   - world_the_end
 

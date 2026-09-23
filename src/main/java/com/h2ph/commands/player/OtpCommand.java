@@ -56,14 +56,14 @@ public class OtpCommand implements CommandExecutor, TabCompleter {
         }
 
         plugin.getSchedulerAdapter().runTaskAsync(() -> {
-            OfflinePlayer offlineTarget = Bukkit.getOfflinePlayer(targetName);
+            OfflinePlayer offlineTarget = plugin.getPlayerNameCache().getOfflinePlayer(targetName);
+            if (offlineTarget == null) {
+                plugin.getSchedulerAdapter().runTask(() -> sendError(p, "&cThat player does not exist."));
+                return;
+            }
             UUID targetUuid = offlineTarget.getUniqueId();
 
             if (plugin.getDatabaseManager().isFlatfileMode() || !plugin.getDatabaseManager().isConnected()) {
-                if (!offlineTarget.hasPlayedBefore() && !offlineTarget.isOnline()) {
-                    plugin.getSchedulerAdapter().runTask(() -> sendError(p, "&cThat player does not exist."));
-                    return;
-                }
             } else {
                 String statusQuery = "SELECT status FROM player_stats WHERE uuid = ?";
                 try (java.sql.Connection conn = plugin.getDatabaseManager().getConnection();

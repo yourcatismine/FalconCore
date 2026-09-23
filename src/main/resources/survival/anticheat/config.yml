@@ -36,7 +36,7 @@ violations:
 
 # Environmental and action grace durations (in ticks, 20 ticks = 1 second)
 grace-ticks:
-  velocity: 8
+  velocity: 35
   teleport: 40
   respawn: 60
   world-change: 60

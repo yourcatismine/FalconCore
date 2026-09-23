@@ -45,12 +45,9 @@ public class LowtierCommand implements CommandExecutor, TabCompleter {
         String sub = args[0].toLowerCase();
         String targetName = args[1];
 
-        OfflinePlayer target = Bukkit.getPlayerExact(targetName);
-        if (target == null) {
-            target = Bukkit.getOfflinePlayer(targetName);
-        }
+        OfflinePlayer target = plugin.getPlayerNameCache().getOfflinePlayer(targetName);
 
-        if (target == null || (!target.hasPlayedBefore() && !target.isOnline())) {
+        if (target == null) {
             failFeedback(sender, "&cPlayer '&f" + targetName + "&c' not found.");
             return true;
         }

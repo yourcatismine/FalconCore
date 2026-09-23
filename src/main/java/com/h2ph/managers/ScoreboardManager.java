@@ -58,6 +58,22 @@ public class ScoreboardManager implements Listener {
         }
         config = YamlConfiguration.loadConfiguration(configFile);
 
+        java.io.InputStream defConfigStream = plugin.getResource("scoreboard/config.yml");
+        if (defConfigStream != null) {
+            YamlConfiguration defConfig = YamlConfiguration.loadConfiguration(
+                    new java.io.InputStreamReader(defConfigStream, java.nio.charset.StandardCharsets.UTF_8));
+            config.setDefaults(defConfig);
+            if (!config.contains("DUEL")) {
+                config.set("DUEL.ENABLED", defConfig.getBoolean("DUEL.ENABLED", true));
+                config.set("DUEL.TITLE", defConfig.getStringList("DUEL.TITLE"));
+                config.set("DUEL.LINES", defConfig.getStringList("DUEL.LINES"));
+                try {
+                    config.save(configFile);
+                } catch (Exception ignored) {
+                }
+            }
+        }
+
         java.util.List<String> regionList = plugin.getSurvivalConfig().getStringList("region");
         cachedRegion = regionList.isEmpty() ? "EU" : regionList.get(0);
 
@@ -148,6 +164,9 @@ public class ScoreboardManager implements Listener {
 
         titleIndexMap.remove(player.getUniqueId());
         lineCountMap.remove(player.getUniqueId());
+        lastSentLines.remove(player.getUniqueId());
+        lastSentTitle.remove(player.getUniqueId());
+        lastSentComponents.remove(player.getUniqueId());
 
         initScoreboard(player);
         startTask(player);
@@ -233,6 +252,44 @@ public class ScoreboardManager implements Listener {
         lineCountMap.remove(player.getUniqueId());
     }
 
+    private boolean isPlayerInDuel(Player player) {
+        if (player == null || plugin.getDuelArenaManager() == null) return false;
+        return plugin.getDuelArenaManager().isInDuel(player) ||
+               plugin.getDuelArenaManager().isPreDuel(player) ||
+               plugin.getDuelArenaManager().isLooting(player) ||
+               plugin.getDuelArenaManager().isSpectatingEnding(player);
+    }
+
+    private List<String> getDuelTitles() {
+        List<String> titles = config.getStringList("DUEL.TITLE");
+        if (titles != null && !titles.isEmpty()) {
+            return titles;
+        }
+        return Arrays.asList(
+            "&#FF2A2A&lF&#FF4545&la&#FF6060&ll&#FF7B7B&lc&#FF9696&lo&#FFB1B1&ln&#FFCCCC&lSMP &8[&c⚔&8]",
+            "&#FF3333&lM&#FF4D4D&lV&#FF6666&lP&#FF8080&lv&#FF9999&lP &8[&c⚔&8]"
+        );
+    }
+
+    private List<String> getDuelLines() {
+        List<String> lines = config.getStringList("DUEL.LINES");
+        if (lines != null && !lines.isEmpty()) {
+            return new ArrayList<>(lines);
+        }
+        return Arrays.asList(
+            "",
+            " &c⚔ &fOpponent &c{opponent}",
+            " &e📈 &fWin Chance &e{win_chance}",
+            " &a🏆 &fOpponent WR &a{opponent_winrate}",
+            " &b⌚ &fTime &b{duel_time}",
+            "",
+            " &d✦ &fYour WR &d{winrate}",
+            " &7📶 &fPing &7(&b{ping}ms &7vs &c{opponent_ping}ms&7)",
+            "",
+            " &7Asia (&b{region_ping}ms&7)"
+        );
+    }
+
     private void initScoreboard(Player player) {
         if (!config.getBoolean("SCOREBOARD.ENABLED", true))
             return;
@@ -248,7 +305,12 @@ public class ScoreboardManager implements Listener {
 
         titleIndexMap.put(player.getUniqueId(), 0);
 
-        List<String> titles = config.getStringList("SCOREBOARD.TITLE");
+        List<String> titles;
+        if (isPlayerInDuel(player) && config.getBoolean("DUEL.ENABLED", true)) {
+            titles = getDuelTitles();
+        } else {
+            titles = config.getStringList("SCOREBOARD.TITLE");
+        }
         String title = titles.isEmpty() ? "PrismSMP" : color(titles.get(0));
         Component titleComp = LegacyComponentSerializer.legacySection().deserialize(title);
 
@@ -301,7 +363,12 @@ public class ScoreboardManager implements Listener {
             }
         }
 
-        List<String> titles = config.getStringList("SCOREBOARD.TITLE");
+        List<String> titles;
+        if (isPlayerInDuel(player) && config.getBoolean("DUEL.ENABLED", true)) {
+            titles = getDuelTitles();
+        } else {
+            titles = config.getStringList("SCOREBOARD.TITLE");
+        }
         if (!titles.isEmpty()) {
             int currentIndex = Math.floorMod(titleIndexMap.getOrDefault(player.getUniqueId(), 0), titles.size());
             String rawTitle = titles.get(currentIndex);
@@ -399,6 +466,10 @@ public class ScoreboardManager implements Listener {
     }
 
     private List<String> buildLines(Player player) {
+        if (isPlayerInDuel(player) && config.getBoolean("DUEL.ENABLED", true)) {
+            return getDuelLines();
+        }
+
         List<String> lines = new ArrayList<>(config.getStringList("SCOREBOARD.LINES"));
 
         com.falconcore.survival.manager.PlayerData data = plugin.getPlayerDataManager().get(player.getUniqueId());
@@ -588,6 +659,117 @@ public class ScoreboardManager implements Listener {
             } else {
                 text = text.replace("%team_name%", "&6None");
             }
+        }
+
+        Player opp = null;
+        boolean soloTest = false;
+        if (plugin.getDuelArenaManager() != null) {
+            opp = plugin.getDuelArenaManager().getOpponent(player);
+            soloTest = plugin.getDuelArenaManager().isSoloTest(player);
+        }
+
+        if (text.contains("{opponent}") || text.contains("{opponent_name}") || text.contains("{kalaban}")) {
+            String oppName = opp != null ? opp.getName() : (soloTest ? "Solo Test" : "None");
+            text = text.replace("{opponent}", oppName)
+                       .replace("{opponent_name}", oppName)
+                       .replace("{kalaban}", oppName);
+        }
+
+        if (text.contains("{opponent_ping}")) {
+            String oppPing = opp != null ? String.valueOf(opp.getPing()) : (soloTest ? String.valueOf(player.getPing()) : "0");
+            text = text.replace("{opponent_ping}", oppPing);
+        }
+
+        if (text.contains("{opponent_health}")) {
+            String oppHealth = opp != null ? String.format("%.1f", opp.getHealth()) : "0.0";
+            text = text.replace("{opponent_health}", oppHealth);
+        }
+
+        if (text.contains("{opponent_winrate}") || text.contains("{opponent_win_percentage}") || text.contains("{opponent_win_chance}")) {
+            String oppWinrate = "0.00%";
+            if (opp != null && plugin.getDuelArenaManager() != null && plugin.getDuelArenaManager().getStatsManager() != null) {
+                oppWinrate = plugin.getDuelArenaManager().getStatsManager().getWinRate(opp.getUniqueId());
+            }
+            text = text.replace("{opponent_winrate}", oppWinrate)
+                       .replace("{opponent_win_percentage}", oppWinrate)
+                       .replace("{opponent_win_chance}", oppWinrate);
+        }
+
+        if (text.contains("{winrate}") || text.contains("{win_rate}") || text.contains("{player_winrate}")) {
+            String pWinrate = "0.00%";
+            if (plugin.getDuelArenaManager() != null && plugin.getDuelArenaManager().getStatsManager() != null) {
+                pWinrate = plugin.getDuelArenaManager().getStatsManager().getWinRate(player.getUniqueId());
+            }
+            text = text.replace("{winrate}", pWinrate)
+                       .replace("{win_rate}", pWinrate)
+                       .replace("{player_winrate}", pWinrate);
+        }
+
+        if (text.contains("{win_chance}") || text.contains("{win_percentage}") || text.contains("{chance_to_win}")) {
+            String winChance = "50.0%";
+            if (opp != null && plugin.getDuelArenaManager() != null && plugin.getDuelArenaManager().getStatsManager() != null) {
+                int w1 = plugin.getDuelArenaManager().getStatsManager().getWins(player.getUniqueId());
+                int l1 = plugin.getDuelArenaManager().getStatsManager().getLosses(player.getUniqueId());
+                int w2 = plugin.getDuelArenaManager().getStatsManager().getWins(opp.getUniqueId());
+                int l2 = plugin.getDuelArenaManager().getStatsManager().getLosses(opp.getUniqueId());
+
+                double r1 = (w1 + 1.0) / (w1 + l1 + 2.0);
+                double r2 = (w2 + 1.0) / (w2 + l2 + 2.0);
+                double chance = (r1 / (r1 + r2)) * 100.0;
+                winChance = String.format("%.1f%%", chance);
+            }
+            text = text.replace("{win_chance}", winChance)
+                       .replace("{win_percentage}", winChance)
+                       .replace("{chance_to_win}", winChance);
+        }
+
+        if (text.contains("{duel_time}") || text.contains("{match_time}") || text.contains("{time_left}")) {
+            String duelTime = plugin.getDuelArenaManager() != null ? plugin.getDuelArenaManager().getFormattedRemainingTime(player) : "00:00";
+            text = text.replace("{duel_time}", duelTime)
+                       .replace("{match_time}", duelTime)
+                       .replace("{time_left}", duelTime);
+        }
+
+        if (text.contains("{time_elapsed}") || text.contains("{duel_time_elapsed}")) {
+            String duelElapsed = plugin.getDuelArenaManager() != null ? plugin.getDuelArenaManager().getFormattedElapsedTime(player) : "00:00";
+            text = text.replace("{time_elapsed}", duelElapsed)
+                       .replace("{duel_time_elapsed}", duelElapsed);
+        }
+
+        if (text.contains("{arena}") || text.contains("{arena_name}")) {
+            String arena = (plugin.getDuelArenaManager() != null && plugin.getDuelArenaManager().getArenaName(player) != null)
+                    ? plugin.getDuelArenaManager().getArenaName(player).replace(".yml", "")
+                    : "None";
+            text = text.replace("{arena}", arena)
+                       .replace("{arena_name}", arena);
+        }
+
+        if (text.contains("{streak}") || text.contains("{player_streak}")) {
+            String streak = (plugin.getDuelArenaManager() != null && plugin.getDuelArenaManager().getStatsManager() != null)
+                    ? String.valueOf(plugin.getDuelArenaManager().getStatsManager().getStreak(player.getUniqueId()))
+                    : "0";
+            text = text.replace("{streak}", streak).replace("{player_streak}", streak);
+        }
+
+        if (text.contains("{opponent_streak}")) {
+            String oppStreak = (opp != null && plugin.getDuelArenaManager() != null && plugin.getDuelArenaManager().getStatsManager() != null)
+                    ? String.valueOf(plugin.getDuelArenaManager().getStatsManager().getStreak(opp.getUniqueId()))
+                    : "0";
+            text = text.replace("{opponent_streak}", oppStreak);
+        }
+
+        if (text.contains("{wins}") || text.contains("{player_wins}")) {
+            String wins = (plugin.getDuelArenaManager() != null && plugin.getDuelArenaManager().getStatsManager() != null)
+                    ? String.valueOf(plugin.getDuelArenaManager().getStatsManager().getWins(player.getUniqueId()))
+                    : "0";
+            text = text.replace("{wins}", wins).replace("{player_wins}", wins);
+        }
+
+        if (text.contains("{losses}") || text.contains("{player_losses}")) {
+            String losses = (plugin.getDuelArenaManager() != null && plugin.getDuelArenaManager().getStatsManager() != null)
+                    ? String.valueOf(plugin.getDuelArenaManager().getStatsManager().getLosses(player.getUniqueId()))
+                    : "0";
+            text = text.replace("{losses}", losses).replace("{player_losses}", losses);
         }
 
         if (text.contains("%") && plugin.getServer().getPluginManager().isPluginEnabled("PlaceholderAPI")) {
