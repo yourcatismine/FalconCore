@@ -1,26 +1,88 @@
 INTERVAL: 60
 SCOREBOARD:
   ENABLED: true
-  SHARD-BOOSTER: " &5⚡ &fBooster &5%falconcore_shard_booster%"
+  SHARD-BOOSTER: " \uE116 &fBooster &d%falconcore_shard_booster%"
   VIP: "&fꜰᴀʟᴄᴏɴ+"
   SWITCHER:
     [
+      " \uE112 &fKills &c%falconcore_kills%",
       " &#F97603☠ &fDeaths &#F97603%falconcore_deaths%",
-      " &FC0000🗡 &fKills &#FC0000%falconcore_kills%",
     ]
-  TEAMS: " &d🪓 &fTeam %team_name%"
+  TEAMS: " \uE115 &fTeam %team_name%"
+  # Animated Halloween Background + BURGERSMP Title (\uE121 - \uE128)
   TITLE:
-    - "&b&lFalconSMP"
+    - "\uF804\uE121\uF804"
+    - "\uF804\uE122\uF804"
+    - "\uF804\uE123\uF804"
+    - "\uF804\uE124\uF804"
+    - "\uF804\uE125\uF804"
+    - "\uF804\uE126\uF804"
+    - "\uF804\uE127\uF804"
+    - "\uF804\uE128\uF804"
   LINES:
     - ""
     - " &7{gamertag}"
-    - " &a&l$ &fMoney &a%falconcore_balance%"
-    - " &5⭐ &fShards &5%falconcore_shards%"
-    - " {switcher}"
-    - " &b☄ &fKeyall &b%falconcore_keyall%"
-    - " &e⌚ &fPlaytime &e%falconcore_playtime%"
+    - " \uE110 &fMoney &a%falconcore_balance%"
+    - " \uE111 &fShards &d%falconcore_shards%"
+    - "{switcher}"
+    - " \uE113 &fKeyall &b%falconcore_keyall%"
+    - " \uE114 &fPlaytime &e%falconcore_playtime%"
     - ""
     - " &7Asia (&b{region_ping}ms&7)"
+
+  # Fallback Scoreboard (used when players cannot download/load the resource pack)
+  FALLBACK:
+    ENABLED: true
+    REQUIRE-PACK: true
+    TITLE:
+      - "&6&lBURGER&c&lSMP"
+    SWITCHER:
+      [
+        " &c⚔ &fKills &c%falconcore_kills%",
+        " &#F97603☠ &fDeaths &#F97603%falconcore_deaths%",
+      ]
+    TEAMS: " &d⛏ &fTeam %team_name%"
+    SHARD-BOOSTER: " &5⚡ &fBooster &5%falconcore_shard_booster%"
+    LINES:
+      - ""
+      - " &7{gamertag}"
+      - " &a&l$ &fMoney &a%falconcore_balance%"
+      - " &5★ &fShards &d%falconcore_shards%"
+      - "{switcher}"
+      - " &b☄ &fKeyall &b%falconcore_keyall%"
+      - " &e⌚ &fPlaytime &e%falconcore_playtime%"
+      - ""
+      - " &7Asia (&b{region_ping}ms&7)"
+
+  # Halloween Animated Scoreboard Section
+  HALLOWEEN:
+    ENABLED: true
+    TITLE:
+      - "\uF804\uE121\uF804"
+      - "\uF804\uE122\uF804"
+      - "\uF804\uE123\uF804"
+      - "\uF804\uE124\uF804"
+      - "\uF804\uE125\uF804"
+      - "\uF804\uE126\uF804"
+      - "\uF804\uE127\uF804"
+      - "\uF804\uE128\uF804"
+    SWITCHER:
+      [
+        " \uE112 &fKills &c%falconcore_kills%",
+        " &#F97603☠ &fDeaths &#F97603%falconcore_deaths%",
+      ]
+    TEAMS: " \uE115 &fTeam %team_name%"
+    SHARD-BOOSTER: " \uE116 &fBooster &d%falconcore_shard_booster%"
+    LINES:
+      - ""
+      - " &7{gamertag}"
+      - " \uE110 &fMoney &a%falconcore_balance%"
+      - " \uE111 &fShards &d%falconcore_shards%"
+      - " {switcher}"
+      - " \uE113 &fKeyall &b%falconcore_keyall%"
+      - " \uE114 &fPlaytime &e%falconcore_playtime%"
+      - ""
+      - " &7Asia (&b{region_ping}ms&7)"
 
 # Duel Scoreboard (Active only when the player is in a Duel match)
 # Supported Placeholders:

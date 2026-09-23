@@ -101,9 +101,11 @@ public class AntiXrayProcessor {
         int freecamObfuscatedCount = 0;
         int worldMinHeight = world.getMinHeight();
 
-        int playerX = player.getLocation().getBlockX();
-        int playerY = player.getLocation().getBlockY();
-        int playerZ = player.getLocation().getBlockZ();
+        // Fix 4: Cache getLocation() once — avoids repeated object allocation in hot loop
+        org.bukkit.Location playerLoc = player.getLocation();
+        int playerX = playerLoc.getBlockX();
+        int playerY = playerLoc.getBlockY();
+        int playerZ = playerLoc.getBlockZ();
 
         int caveRevealDist = config.getCaveRevealDistance();
         int caveRevealDistSq = caveRevealDist * caveRevealDist;
@@ -347,15 +349,19 @@ public class AntiXrayProcessor {
         }
 
         // Anti-Freecam boundary check for single block changes
-        if (config.isAntiFreecamEnabled(world) && by <= config.getFreecamMaxY(worldType)) {
-            int px = player.getLocation().getBlockX();
-            int py = player.getLocation().getBlockY();
-            int pz = player.getLocation().getBlockZ();
+        // NOTE: stateId == 0 means the block was broken (air). Never obfuscate air or the
+        // client will see a ghost block where the player just mined.
+        if (stateId != 0 && config.isAntiFreecamEnabled(world) && by <= config.getFreecamMaxY(worldType)) {
+            // Fix 4: Cache getLocation() once per packet
+            org.bukkit.Location playerLoc = player.getLocation();
+            int px = playerLoc.getBlockX();
+            int py = playerLoc.getBlockY();
+            int pz = playerLoc.getBlockZ();
             int bdx = Math.abs(bx - px);
             int bdz = Math.abs(bz - pz);
             int bdy = py - by;
             if (bdx > config.getAntiFreecamDistance() || bdz > config.getAntiFreecamDistance() || bdy > config.getAntiFreecamVerticalDistance()) {
-                if (stateId == 0 || registry.isNaturalRockOrAir(stateId)) {
+                if (registry.isNaturalRockOrAir(stateId)) {
                     packet.setBlockID(fakeDefaultId);
                     blocksObfuscated.incrementAndGet();
                     return;
@@ -419,9 +425,11 @@ public class AntiXrayProcessor {
         int minHeight = world.getMinHeight();
         String worldName = world.getName();
 
-        int px = player.getLocation().getBlockX();
-        int py = player.getLocation().getBlockY();
-        int pz = player.getLocation().getBlockZ();
+        // Fix 4: Cache getLocation() once per packet
+        org.bukkit.Location playerLoc = player.getLocation();
+        int px = playerLoc.getBlockX();
+        int py = playerLoc.getBlockY();
+        int pz = playerLoc.getBlockZ();
         boolean antiFreecam = config.isAntiFreecamEnabled(world);
         boolean antiXray = config.isAntiXrayEnabled(world);
         int freecamDist = config.getAntiFreecamDistance();
@@ -448,12 +456,14 @@ public class AntiXrayProcessor {
             }
 
             // Anti-Freecam boundary check
-            if (antiFreecam && worldY <= freecamMaxY) {
+            // NOTE: stateId == 0 means the block was broken (air). Never obfuscate air or the
+            // client will see a ghost block where the player just mined.
+            if (stateId != 0 && antiFreecam && worldY <= freecamMaxY) {
                 int bdx = Math.abs(worldX - px);
                 int bdz = Math.abs(worldZ - pz);
                 int bdy = py - worldY;
                 if (bdx > freecamDist || bdz > freecamDist || bdy > freecamVertDist) {
-                    if (stateId == 0 || registry.isNaturalRockOrAir(stateId)) {
+                    if (registry.isNaturalRockOrAir(stateId)) {
                         block.setBlockId(fakeDefaultId);
                         blocksObfuscated.incrementAndGet();
                         continue;

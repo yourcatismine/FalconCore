@@ -10,6 +10,8 @@ import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerCh
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerMultiBlockChange;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSpawnEntity;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerDestroyEntities;
+import com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState;
+import io.github.retrooper.packetevents.util.SpigotConversionUtil;
 import com.h2ph.Falcon;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -39,6 +41,9 @@ public class AntiXrayListener implements Listener {
     private final OcclusionRegistry registry;
 
     private final Map<UUID, PlayerFreecamTracker> freecamTrackers = new ConcurrentHashMap<>();
+    // Cooldown maps for performance: prevent per-move floods
+    private final Map<UUID, Long> lastChunkResendTime = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> lastOreRestoreTime  = new ConcurrentHashMap<>();
 
     private PacketListenerAbstract packetListener;
 
@@ -132,6 +137,7 @@ public class AntiXrayListener implements Listener {
         }
     }
 
+    /** Called by AntiXrayManager on plugin disable / reload to clean up. */
     public void unregister() {
         if (packetListener != null) {
             try {
@@ -184,12 +190,25 @@ public class AntiXrayListener implements Listener {
                         for (int dz = -radius; dz <= radius; dz++) {
                             if (dx == 0 && dy == 0 && dz == 0) continue;
                             Block neighbor = world.getBlockAt(bx + dx, by + dy, bz + dz);
-                            if (neighbor.getType() != Material.AIR && neighbor.getType() != Material.CAVE_AIR && neighbor.getType() != Material.VOID_AIR) {
-                                Location loc = neighbor.getLocation();
-                                org.bukkit.block.data.BlockData data = neighbor.getBlockData();
-                                for (Player p : nearby) {
-                                    p.sendBlockChange(loc, data);
-                                }
+                            Material type = neighbor.getType();
+                            if (type == Material.AIR || type == Material.CAVE_AIR || type == Material.VOID_AIR) continue;
+
+                            // Fix 2: Only send block-change for blocks that AntiXray could have hidden.
+                            // Sending updates for stone/dirt/etc. is wasted bandwidth.
+                            int stateId;
+                            try {
+                                WrappedBlockState ws = io.github.retrooper.packetevents.util.SpigotConversionUtil
+                                        .fromBukkitBlockData(neighbor.getBlockData());
+                                stateId = (ws != null) ? ws.getGlobalId() : -1;
+                            } catch (Throwable ignored2) {
+                                stateId = -1;
+                            }
+                            if (stateId < 0 || !registry.isReplaceable(stateId)) continue;
+
+                            Location loc = neighbor.getLocation();
+                            org.bukkit.block.data.BlockData data = neighbor.getBlockData();
+                            for (Player p : nearby) {
+                                p.sendBlockChange(loc, data);
                             }
                         }
                     }
@@ -267,59 +286,88 @@ public class AntiXrayListener implements Listener {
                 tracker.lastChunkZ = chunkZ;
                 tracker.lastUpdateTime = System.currentTimeMillis();
 
-                int freecamDist = config.getAntiFreecamDistance();
-                int chunkRadius = (freecamDist >> 4) + 1;
+                // Fix 1: Cooldown gate — resend at most once every 800ms per player to prevent
+                // flooding the Netty pipeline with dozens of full chunk packets per second.
+                long nowMs = System.currentTimeMillis();
+                Long lastResend = lastChunkResendTime.get(player.getUniqueId());
+                if (lastResend == null || (nowMs - lastResend) >= 800L) {
+                    lastChunkResendTime.put(player.getUniqueId(), nowMs);
 
-                // Dynamically refresh nearby subterranean chunks on the player's client via NMS
-                for (int cx = chunkX - chunkRadius; cx <= chunkX + chunkRadius; cx++) {
-                    for (int cz = chunkZ - chunkRadius; cz <= chunkZ + chunkRadius; cz++) {
-                        final int targetCX = cx;
-                        final int targetCZ = cz;
-                        Location chunkLoc = new Location(world, (targetCX << 4) + 8,
-                                Math.max(world.getMinHeight(), Math.min(toY, world.getMaxHeight() - 1)),
-                                (targetCZ << 4) + 8);
+                    // Cap chunk radius at 1 (3×3 = 9 chunks) — the anti-freecam distance is
+                    // already enforced per-block in processChunk; resending every chunk in the
+                    // full freecam radius on every move was the primary TPS killer.
+                    final int resendRadius = 1;
 
-                        plugin.getSchedulerAdapter().runAtLocation(chunkLoc, () -> {
-                            if (!player.isOnline() || !world.isChunkLoaded(targetCX, targetCZ)) return;
-                            try {
-                                if (!NmsChunkRefresher.resendChunk(player, targetCX, targetCZ)) {
-                                    world.refreshChunk(targetCX, targetCZ);
-                                }
-                            } catch (Throwable ignored) {}
-                        });
+                    for (int cx = chunkX - resendRadius; cx <= chunkX + resendRadius; cx++) {
+                        for (int cz = chunkZ - resendRadius; cz <= chunkZ + resendRadius; cz++) {
+                            final int targetCX = cx;
+                            final int targetCZ = cz;
+                            Location chunkLoc = new Location(world, (targetCX << 4) + 8,
+                                    Math.max(world.getMinHeight(), Math.min(toY, world.getMaxHeight() - 1)),
+                                    (targetCZ << 4) + 8);
+
+                            plugin.getSchedulerAdapter().runAtLocation(chunkLoc, () -> {
+                                if (!player.isOnline() || !world.isChunkLoaded(targetCX, targetCZ)) return;
+                                try {
+                                    if (!NmsChunkRefresher.resendChunk(player, targetCX, targetCZ)) {
+                                        world.refreshChunk(targetCX, targetCZ);
+                                    }
+                                } catch (Throwable ignored) {}
+                            });
+                        }
                     }
                 }
             }
         }
 
         // 2. Engine Mode 1 Exposed Cave Ore Restoration
+        // Fix 3: Cooldown gate — run at most once per second per player.
+        // The old code dispatched an individual runAtLocation scheduler task for every
+        // nearby exposed ore on every single block of movement, creating thousands of
+        // scheduled tasks per second with many players underground.
         if (config.getEngineMode(world) == 1) {
-            int caveDist = config.getCaveRevealDistance();
-            int caveDistSq = caveDist * caveDist;
-            int caveChunkRadius = (caveDist >> 4) + 1;
+            long nowMs = System.currentTimeMillis();
+            Long lastRestore = lastOreRestoreTime.get(player.getUniqueId());
+            if (lastRestore == null || (nowMs - lastRestore) >= 1000L) {
+                lastOreRestoreTime.put(player.getUniqueId(), nowMs);
 
-            for (int cx = chunkX - caveChunkRadius; cx <= chunkX + caveChunkRadius; cx++) {
-                for (int cz = chunkZ - caveChunkRadius; cz <= chunkZ + caveChunkRadius; cz++) {
-                    java.util.List<int[]> ores = cache.getExposedOres(worldName, cx, cz);
-                    if (ores == null || ores.isEmpty()) continue;
+                int caveDist = config.getCaveRevealDistance();
+                int caveDistSq = caveDist * caveDist;
+                int caveChunkRadius = (caveDist >> 4) + 1;
 
-                    for (int[] pos : ores) {
-                        int ox = pos[0];
-                        int oy = pos[1];
-                        int oz = pos[2];
-                        int dx = ox - toX;
-                        int dy = oy - toY;
-                        int dz = oz - toZ;
-                        if ((dx * dx + dy * dy + dz * dz) <= caveDistSq) {
-                            Location loc = new Location(world, ox, oy, oz);
-                            plugin.getSchedulerAdapter().runAtLocation(loc, () -> {
-                                if (!player.isOnline()) return;
+                for (int cx = chunkX - caveChunkRadius; cx <= chunkX + caveChunkRadius; cx++) {
+                    for (int cz = chunkZ - caveChunkRadius; cz <= chunkZ + caveChunkRadius; cz++) {
+                        java.util.List<int[]> ores = cache.getExposedOres(worldName, cx, cz);
+                        if (ores == null || ores.isEmpty()) continue;
+
+                        // Batch all in-range ores into a single list then run one task per chunk,
+                        // instead of one runAtLocation dispatch per ore block.
+                        final java.util.List<int[]> batch = new java.util.ArrayList<>();
+                        for (int[] pos : ores) {
+                            int dx = pos[0] - toX;
+                            int dy = pos[1] - toY;
+                            int dz = pos[2] - toZ;
+                            if ((dx * dx + dy * dy + dz * dz) <= caveDistSq) {
+                                batch.add(pos);
+                            }
+                        }
+                        if (batch.isEmpty()) continue;
+
+                        final int batchCX = cx;
+                        final int batchCZ = cz;
+                        Location chunkCenter = new Location(world, (batchCX << 4) + 8,
+                                Math.max(world.getMinHeight(), Math.min(toY, world.getMaxHeight() - 1)),
+                                (batchCZ << 4) + 8);
+                        plugin.getSchedulerAdapter().runAtLocation(chunkCenter, () -> {
+                            if (!player.isOnline()) return;
+                            for (int[] pos : batch) {
+                                int ox = pos[0], oy = pos[1], oz = pos[2];
                                 Block b = world.getBlockAt(ox, oy, oz);
                                 if (b.getType() != Material.AIR && b.getType() != Material.CAVE_AIR && b.getType() != Material.VOID_AIR) {
-                                    player.sendBlockChange(loc, b.getBlockData());
+                                    player.sendBlockChange(new Location(world, ox, oy, oz), b.getBlockData());
                                 }
-                            });
-                        }
+                            }
+                        });
                     }
                 }
             }
@@ -328,7 +376,10 @@ public class AntiXrayListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
-        freecamTrackers.remove(event.getPlayer().getUniqueId());
+        UUID uuid = event.getPlayer().getUniqueId();
+        freecamTrackers.remove(uuid);
+        lastChunkResendTime.remove(uuid);
+        lastOreRestoreTime.remove(uuid);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

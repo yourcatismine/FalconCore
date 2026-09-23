@@ -12,6 +12,10 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerResourcePackStatusEvent;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -27,6 +31,7 @@ public class ResourcePackManager implements Listener {
     private long sendDelayTicks = 10L;
     private final List<PackEntry> packEntries = new ArrayList<>();
     private ResourcePackRequest cachedRequest = null;
+    private final Set<UUID> loadedPlayers = ConcurrentHashMap.newKeySet();
 
     public static class PackEntry {
         private final UUID id;
@@ -228,6 +233,61 @@ public class ResourcePackManager implements Listener {
 
     public List<PackEntry> getPackEntries() {
         return packEntries;
+    }
+
+    public boolean hasPackLoaded(UUID uuid) {
+        return uuid != null && loadedPlayers.contains(uuid);
+    }
+
+    public boolean hasPackLoaded(Player player) {
+        return player != null && hasPackLoaded(player.getUniqueId());
+    }
+
+    public void markPackLoaded(UUID uuid, boolean loaded) {
+        if (uuid == null) return;
+        if (loaded) {
+            loadedPlayers.add(uuid);
+        } else {
+            loadedPlayers.remove(uuid);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onResourcePackStatus(PlayerResourcePackStatusEvent event) {
+        Player player = event.getPlayer();
+        if (player == null) return;
+
+        PlayerResourcePackStatusEvent.Status status = event.getStatus();
+        if (status == PlayerResourcePackStatusEvent.Status.SUCCESSFULLY_LOADED) {
+            loadedPlayers.add(player.getUniqueId());
+            if (plugin.getScoreboardManager() != null) {
+                if (plugin.getSchedulerAdapter() != null) {
+                    plugin.getSchedulerAdapter().runEntityTask(player, () -> {
+                        plugin.getScoreboardManager().reloadScoreboard(player);
+                    });
+                } else {
+                    plugin.getScoreboardManager().reloadScoreboard(player);
+                }
+            }
+        } else if (status == PlayerResourcePackStatusEvent.Status.DECLINED
+                || status == PlayerResourcePackStatusEvent.Status.FAILED_DOWNLOAD
+                || status == PlayerResourcePackStatusEvent.Status.DISCARDED) {
+            loadedPlayers.remove(player.getUniqueId());
+            if (plugin.getScoreboardManager() != null) {
+                if (plugin.getSchedulerAdapter() != null) {
+                    plugin.getSchedulerAdapter().runEntityTask(player, () -> {
+                        plugin.getScoreboardManager().reloadScoreboard(player);
+                    });
+                } else {
+                    plugin.getScoreboardManager().reloadScoreboard(player);
+                }
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        loadedPlayers.remove(event.getPlayer().getUniqueId());
     }
 
     private UUID extractOrGenerateUuid(String rawId, String url) {

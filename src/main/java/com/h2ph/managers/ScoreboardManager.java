@@ -63,10 +63,33 @@ public class ScoreboardManager implements Listener {
             YamlConfiguration defConfig = YamlConfiguration.loadConfiguration(
                     new java.io.InputStreamReader(defConfigStream, java.nio.charset.StandardCharsets.UTF_8));
             config.setDefaults(defConfig);
+            boolean dirty = false;
             if (!config.contains("DUEL")) {
                 config.set("DUEL.ENABLED", defConfig.getBoolean("DUEL.ENABLED", true));
                 config.set("DUEL.TITLE", defConfig.getStringList("DUEL.TITLE"));
                 config.set("DUEL.LINES", defConfig.getStringList("DUEL.LINES"));
+                dirty = true;
+            }
+            if (!config.contains("SCOREBOARD.FALLBACK")) {
+                config.set("SCOREBOARD.FALLBACK.ENABLED", defConfig.getBoolean("SCOREBOARD.FALLBACK.ENABLED", true));
+                config.set("SCOREBOARD.FALLBACK.REQUIRE-PACK", defConfig.getBoolean("SCOREBOARD.FALLBACK.REQUIRE-PACK", true));
+                config.set("SCOREBOARD.FALLBACK.TITLE", defConfig.getStringList("SCOREBOARD.FALLBACK.TITLE"));
+                config.set("SCOREBOARD.FALLBACK.SWITCHER", defConfig.getStringList("SCOREBOARD.FALLBACK.SWITCHER"));
+                config.set("SCOREBOARD.FALLBACK.TEAMS", defConfig.getString("SCOREBOARD.FALLBACK.TEAMS"));
+                config.set("SCOREBOARD.FALLBACK.SHARD-BOOSTER", defConfig.getString("SCOREBOARD.FALLBACK.SHARD-BOOSTER"));
+                config.set("SCOREBOARD.FALLBACK.LINES", defConfig.getStringList("SCOREBOARD.FALLBACK.LINES"));
+                dirty = true;
+            }
+            if (!config.contains("SCOREBOARD.HALLOWEEN")) {
+                config.set("SCOREBOARD.HALLOWEEN.ENABLED", defConfig.getBoolean("SCOREBOARD.HALLOWEEN.ENABLED", true));
+                config.set("SCOREBOARD.HALLOWEEN.TITLE", defConfig.getStringList("SCOREBOARD.HALLOWEEN.TITLE"));
+                config.set("SCOREBOARD.HALLOWEEN.SWITCHER", defConfig.getStringList("SCOREBOARD.HALLOWEEN.SWITCHER"));
+                config.set("SCOREBOARD.HALLOWEEN.TEAMS", defConfig.getString("SCOREBOARD.HALLOWEEN.TEAMS"));
+                config.set("SCOREBOARD.HALLOWEEN.SHARD-BOOSTER", defConfig.getString("SCOREBOARD.HALLOWEEN.SHARD-BOOSTER"));
+                config.set("SCOREBOARD.HALLOWEEN.LINES", defConfig.getStringList("SCOREBOARD.HALLOWEEN.LINES"));
+                dirty = true;
+            }
+            if (dirty) {
                 try {
                     config.save(configFile);
                 } catch (Exception ignored) {
@@ -309,9 +332,9 @@ public class ScoreboardManager implements Listener {
         if (isPlayerInDuel(player) && config.getBoolean("DUEL.ENABLED", true)) {
             titles = getDuelTitles();
         } else {
-            titles = config.getStringList("SCOREBOARD.TITLE");
+            titles = getTitlesForPlayer(player);
         }
-        String title = titles.isEmpty() ? "PrismSMP" : color(titles.get(0));
+        String title = titles.isEmpty() ? "PrismSMP" : formatTitle(titles.get(0));
         Component titleComp = LegacyComponentSerializer.legacySection().deserialize(title);
 
         WrapperPlayServerScoreboardObjective objectivePacket = new WrapperPlayServerScoreboardObjective(
@@ -367,7 +390,7 @@ public class ScoreboardManager implements Listener {
         if (isPlayerInDuel(player) && config.getBoolean("DUEL.ENABLED", true)) {
             titles = getDuelTitles();
         } else {
-            titles = config.getStringList("SCOREBOARD.TITLE");
+            titles = getTitlesForPlayer(player);
         }
         if (!titles.isEmpty()) {
             int currentIndex = Math.floorMod(titleIndexMap.getOrDefault(player.getUniqueId(), 0), titles.size());
@@ -375,7 +398,7 @@ public class ScoreboardManager implements Listener {
             String lastTitle = lastSentTitle.get(player.getUniqueId());
 
             if (lastTitle == null || !lastTitle.equals(rawTitle)) {
-                String title = color(rawTitle);
+                String title = formatTitle(rawTitle);
                 Component titleComp = LegacyComponentSerializer.legacySection().deserialize(title);
 
                 WrapperPlayServerScoreboardObjective updateTitlePacket = new WrapperPlayServerScoreboardObjective(
@@ -465,12 +488,55 @@ public class ScoreboardManager implements Listener {
         }
     }
 
+    private boolean isFallbackActiveFor(Player player) {
+        if (player == null) {
+            return false;
+        }
+        boolean fallbackEnabled = config.getBoolean("SCOREBOARD.FALLBACK.ENABLED", true);
+        if (!fallbackEnabled) {
+            return false;
+        }
+        boolean requirePack = config.getBoolean("SCOREBOARD.FALLBACK.REQUIRE-PACK", true);
+        if (!requirePack) {
+            return true;
+        }
+        boolean hasPack = plugin.getResourcePackManager() != null && plugin.getResourcePackManager().hasPackLoaded(player);
+        return !hasPack;
+    }
+
+    public List<String> getTitlesForPlayer(Player player) {
+        if (isPlayerInDuel(player) && config.getBoolean("DUEL.ENABLED", true)) {
+            return getDuelTitles();
+        }
+        if (isFallbackActiveFor(player) && config.contains("SCOREBOARD.FALLBACK.TITLE")) {
+            List<String> fbTitles = config.getStringList("SCOREBOARD.FALLBACK.TITLE");
+            if (!fbTitles.isEmpty()) {
+                return fbTitles;
+            }
+        }
+        if (config.contains("SCOREBOARD.HALLOWEEN.TITLE")) {
+            List<String> hTitles = config.getStringList("SCOREBOARD.HALLOWEEN.TITLE");
+            if (!hTitles.isEmpty()) {
+                return hTitles;
+            }
+        }
+        return config.getStringList("SCOREBOARD.TITLE");
+    }
+
     private List<String> buildLines(Player player) {
         if (isPlayerInDuel(player) && config.getBoolean("DUEL.ENABLED", true)) {
             return getDuelLines();
         }
 
-        List<String> lines = new ArrayList<>(config.getStringList("SCOREBOARD.LINES"));
+        boolean fallback = isFallbackActiveFor(player);
+        List<String> lines;
+        if (fallback && config.contains("SCOREBOARD.FALLBACK.LINES")) {
+            lines = new ArrayList<>(config.getStringList("SCOREBOARD.FALLBACK.LINES"));
+        } else if (config.contains("SCOREBOARD.HALLOWEEN.LINES")) {
+            lines = new ArrayList<>(config.getStringList("SCOREBOARD.HALLOWEEN.LINES"));
+        } else {
+            lines = new ArrayList<>(config.getStringList("SCOREBOARD.LINES"));
+        }
 
         com.falconcore.survival.manager.PlayerData data = plugin.getPlayerDataManager().get(player.getUniqueId());
         if (data != null) {
@@ -482,7 +548,11 @@ public class ScoreboardManager implements Listener {
                 }
             }
 
-            String teamFormat = config.getString("SCOREBOARD.TEAMS");
+            String teamFormat = fallback && config.contains("SCOREBOARD.FALLBACK.TEAMS")
+                    ? config.getString("SCOREBOARD.FALLBACK.TEAMS")
+                    : (config.contains("SCOREBOARD.HALLOWEEN.TEAMS")
+                        ? config.getString("SCOREBOARD.HALLOWEEN.TEAMS")
+                        : config.getString("SCOREBOARD.TEAMS"));
             if (teamFormat != null && !teamFormat.isEmpty() && data.getTeamId() != null) {
                 if (playtimeIndex != -1) {
                     lines.add(playtimeIndex + 1, teamFormat);
@@ -496,7 +566,11 @@ public class ScoreboardManager implements Listener {
                 }
             }
 
-            String boosterFormat = config.getString("SCOREBOARD.SHARD-BOOSTER");
+            String boosterFormat = fallback && config.contains("SCOREBOARD.FALLBACK.SHARD-BOOSTER")
+                    ? config.getString("SCOREBOARD.FALLBACK.SHARD-BOOSTER")
+                    : (config.contains("SCOREBOARD.HALLOWEEN.SHARD-BOOSTER")
+                        ? config.getString("SCOREBOARD.HALLOWEEN.SHARD-BOOSTER")
+                        : config.getString("SCOREBOARD.SHARD-BOOSTER"));
             if (boosterFormat != null && !boosterFormat.isEmpty() && data.hasActiveShardBooster()) {
                 if (playtimeIndex != -1) {
                     lines.add(playtimeIndex + 1, boosterFormat);
@@ -633,7 +707,15 @@ public class ScoreboardManager implements Listener {
         }
 
         if (text.contains("{switcher}")) {
-            List<String> switchers = config.getStringList("SCOREBOARD.SWITCHER");
+            boolean fallback = isFallbackActiveFor(player);
+            List<String> switchers;
+            if (fallback && config.contains("SCOREBOARD.FALLBACK.SWITCHER")) {
+                switchers = config.getStringList("SCOREBOARD.FALLBACK.SWITCHER");
+            } else if (config.contains("SCOREBOARD.HALLOWEEN.SWITCHER")) {
+                switchers = config.getStringList("SCOREBOARD.HALLOWEEN.SWITCHER");
+            } else {
+                switchers = config.getStringList("SCOREBOARD.SWITCHER");
+            }
             if (!switchers.isEmpty()) {
                 int safeIndex = Math.floorMod(currentSwitcherIndex, switchers.size());
                 String switcherText = switchers.get(safeIndex);
@@ -776,6 +858,30 @@ public class ScoreboardManager implements Listener {
             text = PlaceholderAPI.setPlaceholders(player, text);
         }
         return color(text);
+    }
+
+    private boolean isHalloweenBg(String title) {
+        for (char c : title.toCharArray()) {
+            if ((c >= 0xE121 && c <= 0xE128) || (c >= 0xE131 && c <= 0xE138)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String formatTitle(String rawTitle) {
+        if (rawTitle == null || rawTitle.isEmpty()) {
+            return "";
+        }
+        if (isHalloweenBg(rawTitle)) {
+            if (!rawTitle.startsWith("\uF804")) {
+                rawTitle = "\uF804" + rawTitle;
+            }
+            if (!rawTitle.endsWith("\uF804")) {
+                rawTitle = rawTitle + "\uF804";
+            }
+        }
+        return color(rawTitle);
     }
 
     private String color(String text) {
