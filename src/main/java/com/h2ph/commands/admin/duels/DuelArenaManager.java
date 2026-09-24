@@ -35,13 +35,20 @@ public class DuelArenaManager {
         return statsManager;
     }
 
-    private final java.util.Map<java.util.UUID, java.util.UUID> activeDuels = new java.util.HashMap<>();
-    private final java.util.Map<java.util.UUID, String> playerArenas = new java.util.HashMap<>();
-    private final java.util.Map<java.util.UUID, org.bukkit.scheduler.BukkitTask> activeTasks = new java.util.HashMap<>();
-    private final java.util.Map<java.util.UUID, Location> spectatingLosers = new java.util.HashMap<>();
-    private final java.util.Set<java.util.UUID> respawnAtHub = new java.util.HashSet<>();
+    private DuelQueueManager queueManager;
 
-    private final java.util.Map<java.util.UUID, org.bukkit.scheduler.BukkitTask> matchTasks = new java.util.HashMap<>();
+    public void setQueueManager(DuelQueueManager queueManager) {
+        this.queueManager = queueManager;
+    }
+
+    private final java.util.Map<java.util.UUID, java.util.UUID> activeDuels = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Map<java.util.UUID, String> playerArenas = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Map<java.util.UUID, org.bukkit.scheduler.BukkitTask> activeTasks = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Map<java.util.UUID, Location> spectatingLosers = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Set<java.util.UUID> respawnAtHub = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final java.util.Set<java.util.UUID> lootingPlayers = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    private final java.util.Map<java.util.UUID, org.bukkit.scheduler.BukkitTask> matchTasks = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.Map<java.util.UUID, Integer> matchRemainingSeconds = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.Map<java.util.UUID, Long> matchStartTime = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.Map<java.util.UUID, Integer> matchDurationSeconds = new java.util.concurrent.ConcurrentHashMap<>();
@@ -65,7 +72,7 @@ public class DuelArenaManager {
         }
     }
 
-    private final java.util.Set<java.util.UUID> pendingForfeit = new java.util.HashSet<>();
+    private final java.util.Set<java.util.UUID> pendingForfeit = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final java.util.Set<java.util.UUID> pendingSpawnReset = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final java.util.Set<java.util.UUID> pendingTeleportToSpawn = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
@@ -437,11 +444,67 @@ public class DuelArenaManager {
     }
 
     public void markForfeit(Player player) {
-        pendingForfeit.add(player.getUniqueId());
+        if (player != null) {
+            pendingForfeit.add(player.getUniqueId());
+        }
     }
 
     public boolean isForfeit(Player player) {
-        return pendingForfeit.contains(player.getUniqueId());
+        return player != null && pendingForfeit.contains(player.getUniqueId());
+    }
+
+    public void forfeitDuel(Player leaver) {
+        if (leaver == null) return;
+        java.util.UUID leaverUuid = leaver.getUniqueId();
+        DuelMessageManager mm = getMessageManager();
+
+        Player opponent = getOpponent(leaver);
+        String arenaName = playerArenas.get(leaverUuid);
+        if (arenaName == null && opponent != null) {
+            arenaName = playerArenas.get(opponent.getUniqueId());
+        }
+
+        cleanupElevator(leaver);
+        if (opponent != null) {
+            cleanupElevator(opponent);
+        }
+
+        markForfeit(leaver);
+
+        String forfeitMsg = mm.getMessage("forfeit", "&7You forfeited the match.");
+        leaver.sendMessage(forfeitMsg);
+        try {
+            leaver.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                    new net.md_5.bungee.api.chat.TextComponent(forfeitMsg));
+        } catch (Throwable ignored) {}
+
+        org.bukkit.Location dropLoc = leaver.getLocation();
+        org.bukkit.World world = dropLoc.getWorld();
+        if (world != null) {
+            org.bukkit.inventory.ItemStack[] contents = leaver.getInventory().getContents();
+            for (int i = 0; i < contents.length; i++) {
+                org.bukkit.inventory.ItemStack item = contents[i];
+                if (item != null && item.getType() != org.bukkit.Material.AIR && item.getAmount() > 0) {
+                    world.dropItemNaturally(dropLoc, item.clone());
+                }
+            }
+        }
+
+        leaver.getInventory().clear();
+        leaver.getInventory().setArmorContents(new org.bukkit.inventory.ItemStack[4]);
+        leaver.getInventory().setItemInOffHand(null);
+
+        if (opponent != null && opponent.isOnline()) {
+            opponent.sendMessage(org.bukkit.ChatColor.RED + leaver.getName() + " left the match! You won by forfeit.");
+            endDuel(opponent, leaver, WinReason.FORFEIT);
+        } else {
+            cleanupDuelData(leaver, leaver);
+            playerArenas.remove(leaverUuid);
+            if (arenaName != null && !playerArenas.containsValue(arenaName)) {
+                restoreArena(arenaName);
+            }
+            resetPlayer(leaver);
+        }
     }
 
     /**
@@ -529,6 +592,14 @@ public class DuelArenaManager {
                     }
                 });
             }
+        }
+
+        if (queueManager != null) {
+            plugin.getSchedulerAdapter().runTaskLater(() -> {
+                try {
+                    queueManager.tryMatchPlayers();
+                } catch (Throwable ignored) {}
+            }, 20L);
         }
     }
 
@@ -927,7 +998,7 @@ public class DuelArenaManager {
 
     public boolean isSpectatingEnding(Player player) {
         if (player == null) return false;
-        return spectatingLosers.containsKey(player.getUniqueId()) || activeTasks.containsKey(player.getUniqueId());
+        return spectatingLosers.containsKey(player.getUniqueId());
     }
 
     public Location getElevatorTarget(Player player) {
@@ -987,6 +1058,7 @@ public class DuelArenaManager {
         activeTasks.clear();
         spectatingLosers.clear();
         respawnAtHub.clear();
+        lootingPlayers.clear();
         pendingSpawnReset.clear();
         pendingTeleportToSpawn.clear();
         matchTasks.clear();
@@ -1330,7 +1402,7 @@ public class DuelArenaManager {
         final java.util.concurrent.atomic.AtomicReference<org.bukkit.scheduler.BukkitTask> drawTaskRef = new java.util.concurrent.atomic.AtomicReference<>();
         final java.util.UUID pUuid = p.getUniqueId();
 
-        org.bukkit.scheduler.BukkitTask drawTask = plugin.getSchedulerAdapter().runEntityTaskTimer(p, new Runnable() {
+        org.bukkit.scheduler.BukkitTask drawTask = plugin.getSchedulerAdapter().runTaskTimer(new Runnable() {
             @Override
             public void run() {
                 try {
@@ -1346,48 +1418,52 @@ public class DuelArenaManager {
                         return;
                     }
 
-                    if (!pl.isDead() && pl.getGameMode() != org.bukkit.GameMode.SPECTATOR) {
-                        pl.setGameMode(org.bukkit.GameMode.SPECTATOR);
-                    }
+                    plugin.getSchedulerAdapter().runEntityTask(pl, () -> {
+                        if (!pl.isOnline()) return;
 
-                    int s = drawSeconds.get();
-                    if (s > 0) {
-                        String actionMsg = messageManager.getMessage("spectator-countdown-actionbar",
-                                "&7Teleporting you back in &d{seconds} seconds",
-                                "{seconds}", String.valueOf(s));
-                        try {
-                            pl.spigot().sendMessage(ChatMessageType.ACTION_BAR, net.md_5.bungee.api.chat.TextComponent.fromLegacyText(actionMsg));
-                        } catch (Throwable ex) {
-                            pl.sendMessage(actionMsg);
+                        if (!pl.isDead() && pl.getGameMode() != org.bukkit.GameMode.SPECTATOR) {
+                            pl.setGameMode(org.bukkit.GameMode.SPECTATOR);
                         }
-                        String countColor = (s <= 1) ? "&c&l" : (s <= 2 ? "&6&l" : (s <= 3 ? "&e&l" : "&a&l"));
-                        pl.sendTitle(ChatColor.translateAlternateColorCodes('&', countColor + s),
-                                ChatColor.translateAlternateColorCodes('&', "&fTeleporting to spawn in &e" + s + "s..."),
-                                0, 25, 5);
-                        try {
-                            pl.playSound(pl.getLocation(), org.bukkit.Sound.BLOCK_NOTE_BLOCK_PLING, 1f, 1f + (5 - s) * 0.2f);
-                        } catch (Exception ignored) {
+
+                        int s = drawSeconds.get();
+                        if (s > 0) {
+                            String actionMsg = messageManager.getMessage("spectator-countdown-actionbar",
+                                    "&7Teleporting you back in &d{seconds} seconds",
+                                    "{seconds}", String.valueOf(s));
+                            try {
+                                pl.spigot().sendMessage(ChatMessageType.ACTION_BAR, net.md_5.bungee.api.chat.TextComponent.fromLegacyText(actionMsg));
+                            } catch (Throwable ex) {
+                                pl.sendMessage(actionMsg);
+                            }
+                            String countColor = (s <= 1) ? "&c&l" : (s <= 2 ? "&6&l" : (s <= 3 ? "&e&l" : "&a&l"));
+                            pl.sendTitle(ChatColor.translateAlternateColorCodes('&', countColor + s),
+                                    ChatColor.translateAlternateColorCodes('&', "&fTeleporting to spawn in &e" + s + "s..."),
+                                    0, 25, 5);
+                            try {
+                                pl.playSound(pl.getLocation(), org.bukkit.Sound.BLOCK_NOTE_BLOCK_PLING, 1f, 1f + (5 - s) * 0.2f);
+                            } catch (Exception ignored) {
+                            }
+                            drawSeconds.decrementAndGet();
+                        } else {
+                            spectatingLosers.remove(pUuid);
+                            activeTasks.remove(pUuid);
+                            activeDuels.remove(pUuid);
+                            playerArenas.remove(pUuid);
+                            try {
+                                pl.spigot().sendMessage(ChatMessageType.ACTION_BAR, net.md_5.bungee.api.chat.TextComponent.fromLegacyText(""));
+                            } catch (Throwable ignored) {}
+                            pl.sendTitle(ChatColor.translateAlternateColorCodes('&', "&a&lTELEPORTING..."),
+                                    ChatColor.translateAlternateColorCodes('&', "&fReturning to spawn"), 0, 25, 5);
+                            teleportToSpawn(pl);
+                            if (arenaName != null) {
+                                restoreArena(arenaName);
+                            }
+                            org.bukkit.scheduler.BukkitTask t = drawTaskRef.get();
+                            if (t != null) {
+                                t.cancel();
+                            }
                         }
-                        drawSeconds.decrementAndGet();
-                    } else {
-                        spectatingLosers.remove(pUuid);
-                        activeTasks.remove(pUuid);
-                        activeDuels.remove(pUuid);
-                        playerArenas.remove(pUuid);
-                        try {
-                            pl.spigot().sendMessage(ChatMessageType.ACTION_BAR, net.md_5.bungee.api.chat.TextComponent.fromLegacyText(""));
-                        } catch (Throwable ignored) {}
-                        pl.sendTitle(ChatColor.translateAlternateColorCodes('&', "&a&lTELEPORTING..."),
-                                ChatColor.translateAlternateColorCodes('&', "&fReturning to spawn"), 0, 25, 5);
-                        teleportToSpawn(pl);
-                        if (arenaName != null) {
-                            restoreArena(arenaName);
-                        }
-                        org.bukkit.scheduler.BukkitTask t = drawTaskRef.get();
-                        if (t != null) {
-                            t.cancel();
-                        }
-                    }
+                    });
                 } catch (Throwable t) {
                     drawSeconds.decrementAndGet();
                 }
@@ -1405,6 +1481,7 @@ public class DuelArenaManager {
         matchRemainingSeconds.remove(p.getUniqueId());
         matchDurationSeconds.remove(p.getUniqueId());
         spectatingLosers.remove(p.getUniqueId());
+        lootingPlayers.remove(p.getUniqueId());
 
         if (activeTasks.containsKey(p.getUniqueId())) {
             org.bukkit.scheduler.BukkitTask t = activeTasks.remove(p.getUniqueId());
@@ -1415,7 +1492,7 @@ public class DuelArenaManager {
             } catch (Throwable ignored) {}
 
             String arenaName = playerArenas.remove(p.getUniqueId());
-            if (arenaName != null) {
+            if (arenaName != null && !playerArenas.containsValue(arenaName)) {
                 restoreArena(arenaName);
             }
         }
@@ -1481,10 +1558,28 @@ public class DuelArenaManager {
         final java.util.UUID victimUuid = victim.getUniqueId();
         Runnable forceSpectator = () -> {
             Player pl = org.bukkit.Bukkit.getPlayer(victimUuid);
-            if (pl != null && pl.isOnline() && !pl.isDead()) {
+            if (pl != null && pl.isOnline() && !pl.isDead() && isSpectatingEnding(pl)) {
                 pl.setGameMode(org.bukkit.GameMode.SPECTATOR);
                 if (spectatorLoc != null) {
-                    pl.teleportAsync(spectatorLoc);
+                    setInternalTeleporting(victimUuid, true);
+                    try {
+                        pl.teleportAsync(spectatorLoc).thenAccept(v -> {
+                            if (plugin.isEnabled()) {
+                                plugin.getSchedulerAdapter().runTaskLater(() -> setInternalTeleporting(victimUuid, false), 5L);
+                            } else {
+                                setInternalTeleporting(victimUuid, false);
+                            }
+                        });
+                    } catch (Throwable t) {
+                        try {
+                            pl.teleport(spectatorLoc);
+                        } catch (Throwable ignored) {}
+                        if (plugin.isEnabled()) {
+                            plugin.getSchedulerAdapter().runTaskLater(() -> setInternalTeleporting(victimUuid, false), 5L);
+                        } else {
+                            setInternalTeleporting(victimUuid, false);
+                        }
+                    }
                 }
             }
         };
@@ -1518,7 +1613,7 @@ public class DuelArenaManager {
         final java.util.concurrent.atomic.AtomicInteger loserSeconds = new java.util.concurrent.atomic.AtomicInteger(5);
         final java.util.concurrent.atomic.AtomicReference<org.bukkit.scheduler.BukkitTask> loseTaskRef = new java.util.concurrent.atomic.AtomicReference<>();
 
-        org.bukkit.scheduler.BukkitTask loseTask = plugin.getSchedulerAdapter().runEntityTaskTimer(victim, new Runnable() {
+        org.bukkit.scheduler.BukkitTask loseTask = plugin.getSchedulerAdapter().runTaskTimer(new Runnable() {
             @Override
             public void run() {
                 try {
@@ -1537,53 +1632,57 @@ public class DuelArenaManager {
                         return;
                     }
 
-                    if (!pl.isDead() && pl.getGameMode() != org.bukkit.GameMode.SPECTATOR) {
-                        pl.setGameMode(org.bukkit.GameMode.SPECTATOR);
-                    }
+                    plugin.getSchedulerAdapter().runEntityTask(pl, () -> {
+                        if (!pl.isOnline()) return;
 
-                    int s = loserSeconds.get();
-                    if (s > 0) {
-                        String actionMsg = messageManager.getMessage("spectator-countdown-actionbar",
-                                "&7Teleporting you back in &d{seconds} seconds",
-                                "{seconds}", String.valueOf(s));
-                        try {
-                            pl.spigot().sendMessage(ChatMessageType.ACTION_BAR, net.md_5.bungee.api.chat.TextComponent.fromLegacyText(actionMsg));
-                        } catch (Throwable ex) {
-                            pl.sendMessage(actionMsg);
+                        if (!pl.isDead() && pl.getGameMode() != org.bukkit.GameMode.SPECTATOR) {
+                            pl.setGameMode(org.bukkit.GameMode.SPECTATOR);
                         }
-                        String countColor = (s <= 1) ? "&c&l" : (s <= 2 ? "&6&l" : (s <= 3 ? "&e&l" : "&a&l"));
-                        pl.sendTitle(ChatColor.translateAlternateColorCodes('&', countColor + s),
-                                ChatColor.translateAlternateColorCodes('&', "&fTeleporting to spawn in &e" + s + "s..."),
-                                0, 25, 5);
-                        try {
-                            pl.playSound(pl.getLocation(), org.bukkit.Sound.BLOCK_NOTE_BLOCK_PLING, 1f, 1f + (5 - s) * 0.2f);
-                        } catch (NoSuchFieldError | IllegalArgumentException e) {
-                            pl.playSound(pl.getLocation(), org.bukkit.Sound.UI_BUTTON_CLICK, 1f, 1f);
-                        }
-                        loserSeconds.decrementAndGet();
-                    } else {
-                        spectatingLosers.remove(victimUuid);
-                        activeTasks.remove(victimUuid);
-                        activeDuels.remove(victimUuid);
-                        playerArenas.remove(victimUuid);
 
-                        try {
-                            pl.spigot().sendMessage(ChatMessageType.ACTION_BAR, net.md_5.bungee.api.chat.TextComponent.fromLegacyText(""));
-                        } catch (Throwable ignored) {}
-                        pl.sendTitle(ChatColor.translateAlternateColorCodes('&', "&a&lTELEPORTING..."),
-                                ChatColor.translateAlternateColorCodes('&', "&fReturning to spawn"), 0, 25, 5);
-
-                        if (pl.isDead()) {
-                            respawnAtHub.add(victimUuid);
+                        int s = loserSeconds.get();
+                        if (s > 0) {
+                            String actionMsg = messageManager.getMessage("spectator-countdown-actionbar",
+                                    "&7Teleporting you back in &d{seconds} seconds",
+                                    "{seconds}", String.valueOf(s));
+                            try {
+                                pl.spigot().sendMessage(ChatMessageType.ACTION_BAR, net.md_5.bungee.api.chat.TextComponent.fromLegacyText(actionMsg));
+                            } catch (Throwable ex) {
+                                pl.sendMessage(actionMsg);
+                            }
+                            String countColor = (s <= 1) ? "&c&l" : (s <= 2 ? "&6&l" : (s <= 3 ? "&e&l" : "&a&l"));
+                            pl.sendTitle(ChatColor.translateAlternateColorCodes('&', countColor + s),
+                                    ChatColor.translateAlternateColorCodes('&', "&fTeleporting to spawn in &e" + s + "s..."),
+                                    0, 25, 5);
+                            try {
+                                pl.playSound(pl.getLocation(), org.bukkit.Sound.BLOCK_NOTE_BLOCK_PLING, 1f, 1f + (5 - s) * 0.2f);
+                            } catch (NoSuchFieldError | IllegalArgumentException e) {
+                                pl.playSound(pl.getLocation(), org.bukkit.Sound.UI_BUTTON_CLICK, 1f, 1f);
+                            }
+                            loserSeconds.decrementAndGet();
                         } else {
-                            teleportToSpawn(pl);
+                            spectatingLosers.remove(victimUuid);
+                            activeTasks.remove(victimUuid);
+                            activeDuels.remove(victimUuid);
+                            playerArenas.remove(victimUuid);
+
+                            try {
+                                pl.spigot().sendMessage(ChatMessageType.ACTION_BAR, net.md_5.bungee.api.chat.TextComponent.fromLegacyText(""));
+                            } catch (Throwable ignored) {}
+                            pl.sendTitle(ChatColor.translateAlternateColorCodes('&', "&a&lTELEPORTING..."),
+                                    ChatColor.translateAlternateColorCodes('&', "&fReturning to spawn"), 0, 25, 5);
+
+                            if (pl.isDead()) {
+                                respawnAtHub.add(victimUuid);
+                            } else {
+                                teleportToSpawn(pl);
+                            }
+                            if (finalArena != null) {
+                                restoreArena(finalArena);
+                            }
+                            org.bukkit.scheduler.BukkitTask t = loseTaskRef.get();
+                            if (t != null) t.cancel();
                         }
-                        if (finalArena != null) {
-                            restoreArena(finalArena);
-                        }
-                        org.bukkit.scheduler.BukkitTask t = loseTaskRef.get();
-                        if (t != null) t.cancel();
-                    }
+                    });
                 } catch (Throwable t) {
                     loserSeconds.decrementAndGet();
                 }
@@ -1744,7 +1843,7 @@ public class DuelArenaManager {
         final java.util.UUID p1Uuid = (p1 != null) ? p1.getUniqueId() : null;
         final java.util.UUID p2Uuid = (p2 != null) ? p2.getUniqueId() : null;
 
-        org.bukkit.scheduler.BukkitTask drawTask = plugin.getSchedulerAdapter().runEntityTaskTimer(timerHost, new Runnable() {
+        org.bukkit.scheduler.BukkitTask drawTask = plugin.getSchedulerAdapter().runTaskTimer(new Runnable() {
             @Override
             public void run() {
                 try {
@@ -1867,7 +1966,7 @@ public class DuelArenaManager {
         pendingForfeit.remove(winner.getUniqueId());
         pendingForfeit.remove(loser.getUniqueId());
 
-        if (!spectatingLosers.containsKey(loser.getUniqueId())) {
+        if (reason != WinReason.FORFEIT && !spectatingLosers.containsKey(loser.getUniqueId())) {
             spectatingLosers.put(loser.getUniqueId(), loser.getLocation());
         }
 
@@ -1905,11 +2004,14 @@ public class DuelArenaManager {
                 totalSeconds);
         java.util.concurrent.atomic.AtomicReference<org.bukkit.scheduler.BukkitTask> winTaskRef = new java.util.concurrent.atomic.AtomicReference<>();
 
+        lootingPlayers.add(winner.getUniqueId());
+
         org.bukkit.scheduler.BukkitTask task = plugin.getSchedulerAdapter().runEntityTaskTimer(winner, () -> {
             if (!winner.isOnline()) {
                 org.bukkit.scheduler.BukkitTask t = winTaskRef.get();
                 if (t != null)
                     t.cancel();
+                lootingPlayers.remove(winner.getUniqueId());
                 activeTasks.remove(winner.getUniqueId());
                 playerArenas.remove(winner.getUniqueId());
                 restoreArena(arenaName);
@@ -1933,6 +2035,7 @@ public class DuelArenaManager {
                 }
                 winnerSeconds.decrementAndGet();
             } else {
+                lootingPlayers.remove(winner.getUniqueId());
                 teleportToSpawn(winner);
                 try {
                     winner.spigot().sendMessage(ChatMessageType.ACTION_BAR, net.md_5.bungee.api.chat.TextComponent.fromLegacyText(""));
@@ -1954,16 +2057,46 @@ public class DuelArenaManager {
         org.bukkit.Location spectatorLoc = spectatingLosers.get(loser.getUniqueId());
 
         final java.util.UUID loserUuid = loser.getUniqueId();
-        if (!loser.isOnline()) {
+        if (reason == WinReason.FORFEIT) {
+            spectatingLosers.remove(loserUuid);
+            activeTasks.remove(loserUuid);
+            if (loser.isOnline()) {
+                loser.sendTitle(loseTitle, loseSub, 5, 40, 10);
+                try {
+                    loser.playSound(loser.getLocation(), "ambient.cave", 1f, 1f);
+                } catch (Exception ignored) {}
+                resetPlayer(loser);
+            } else {
+                markPendingSpawnReset(loserUuid);
+            }
+        } else if (!loser.isOnline()) {
             markPendingSpawnReset(loserUuid);
             spectatingLosers.remove(loserUuid);
         } else {
             Runnable forceSpectator = () -> {
                 Player pl = org.bukkit.Bukkit.getPlayer(loserUuid);
-                if (pl != null && pl.isOnline() && !pl.isDead()) {
+                if (pl != null && pl.isOnline() && !pl.isDead() && isSpectatingEnding(pl)) {
                     pl.setGameMode(org.bukkit.GameMode.SPECTATOR);
                     if (spectatorLoc != null) {
-                        pl.teleportAsync(spectatorLoc);
+                        setInternalTeleporting(loserUuid, true);
+                        try {
+                            pl.teleportAsync(spectatorLoc).thenAccept(v -> {
+                                if (plugin.isEnabled()) {
+                                    plugin.getSchedulerAdapter().runTaskLater(() -> setInternalTeleporting(loserUuid, false), 5L);
+                                } else {
+                                    setInternalTeleporting(loserUuid, false);
+                                }
+                            });
+                        } catch (Throwable t) {
+                            try {
+                                pl.teleport(spectatorLoc);
+                            } catch (Throwable ignored) {}
+                            if (plugin.isEnabled()) {
+                                plugin.getSchedulerAdapter().runTaskLater(() -> setInternalTeleporting(loserUuid, false), 5L);
+                            } else {
+                                setInternalTeleporting(loserUuid, false);
+                            }
+                        }
                     }
                 }
             };
@@ -1994,7 +2127,7 @@ public class DuelArenaManager {
             final java.util.concurrent.atomic.AtomicInteger loserSeconds = new java.util.concurrent.atomic.AtomicInteger(5);
             final java.util.concurrent.atomic.AtomicReference<org.bukkit.scheduler.BukkitTask> loseTaskRef = new java.util.concurrent.atomic.AtomicReference<>();
 
-            org.bukkit.scheduler.BukkitTask loseTask = plugin.getSchedulerAdapter().runEntityTaskTimer(loser, new Runnable() {
+            org.bukkit.scheduler.BukkitTask loseTask = plugin.getSchedulerAdapter().runTaskTimer(new Runnable() {
                 @Override
                 public void run() {
                     try {
@@ -2008,47 +2141,51 @@ public class DuelArenaManager {
                             return;
                         }
 
-                        if (!pl.isDead() && pl.getGameMode() != org.bukkit.GameMode.SPECTATOR) {
-                            pl.setGameMode(org.bukkit.GameMode.SPECTATOR);
-                        }
+                        plugin.getSchedulerAdapter().runEntityTask(pl, () -> {
+                            if (!pl.isOnline()) return;
 
-                        int s = loserSeconds.get();
-                        if (s > 0) {
-                            String actionMsg = messageManager.getMessage("spectator-countdown-actionbar",
-                                    "&7Teleporting you back in &d{seconds} seconds",
-                                    "{seconds}", String.valueOf(s));
-                            try {
-                                pl.spigot().sendMessage(ChatMessageType.ACTION_BAR, net.md_5.bungee.api.chat.TextComponent.fromLegacyText(actionMsg));
-                            } catch (Throwable ex) {
-                                pl.sendMessage(actionMsg);
+                            if (!pl.isDead() && pl.getGameMode() != org.bukkit.GameMode.SPECTATOR) {
+                                pl.setGameMode(org.bukkit.GameMode.SPECTATOR);
                             }
-                            String countColor = (s <= 1) ? "&c&l" : (s <= 2 ? "&6&l" : (s <= 3 ? "&e&l" : "&a&l"));
-                            pl.sendTitle(ChatColor.translateAlternateColorCodes('&', countColor + s),
-                                    ChatColor.translateAlternateColorCodes('&', "&fTeleporting to spawn in &e" + s + "s..."),
-                                    0, 25, 5);
-                            try {
-                                pl.playSound(pl.getLocation(), org.bukkit.Sound.BLOCK_NOTE_BLOCK_PLING, 1f, 1f + (5 - s) * 0.2f);
-                            } catch (NoSuchFieldError | IllegalArgumentException e) {
-                                pl.playSound(pl.getLocation(), org.bukkit.Sound.UI_BUTTON_CLICK, 1f, 1f);
-                            }
-                            loserSeconds.decrementAndGet();
-                        } else {
-                            spectatingLosers.remove(loserUuid);
-                            activeTasks.remove(loserUuid);
-                            try {
-                                pl.spigot().sendMessage(ChatMessageType.ACTION_BAR, net.md_5.bungee.api.chat.TextComponent.fromLegacyText(""));
-                            } catch (Throwable ignored) {}
-                            pl.sendTitle(ChatColor.translateAlternateColorCodes('&', "&a&lTELEPORTING..."),
-                                    ChatColor.translateAlternateColorCodes('&', "&fReturning to spawn"), 0, 25, 5);
 
-                            if (pl.isDead()) {
-                                respawnAtHub.add(loserUuid);
+                            int s = loserSeconds.get();
+                            if (s > 0) {
+                                String actionMsg = messageManager.getMessage("spectator-countdown-actionbar",
+                                        "&7Teleporting you back in &d{seconds} seconds",
+                                        "{seconds}", String.valueOf(s));
+                                try {
+                                    pl.spigot().sendMessage(ChatMessageType.ACTION_BAR, net.md_5.bungee.api.chat.TextComponent.fromLegacyText(actionMsg));
+                                } catch (Throwable ex) {
+                                    pl.sendMessage(actionMsg);
+                                }
+                                String countColor = (s <= 1) ? "&c&l" : (s <= 2 ? "&6&l" : (s <= 3 ? "&e&l" : "&a&l"));
+                                pl.sendTitle(ChatColor.translateAlternateColorCodes('&', countColor + s),
+                                        ChatColor.translateAlternateColorCodes('&', "&fTeleporting to spawn in &e" + s + "s..."),
+                                        0, 25, 5);
+                                try {
+                                    pl.playSound(pl.getLocation(), org.bukkit.Sound.BLOCK_NOTE_BLOCK_PLING, 1f, 1f + (5 - s) * 0.2f);
+                                } catch (NoSuchFieldError | IllegalArgumentException e) {
+                                    pl.playSound(pl.getLocation(), org.bukkit.Sound.UI_BUTTON_CLICK, 1f, 1f);
+                                }
+                                loserSeconds.decrementAndGet();
                             } else {
-                                teleportToSpawn(pl);
+                                spectatingLosers.remove(loserUuid);
+                                activeTasks.remove(loserUuid);
+                                try {
+                                    pl.spigot().sendMessage(ChatMessageType.ACTION_BAR, net.md_5.bungee.api.chat.TextComponent.fromLegacyText(""));
+                                } catch (Throwable ignored) {}
+                                pl.sendTitle(ChatColor.translateAlternateColorCodes('&', "&a&lTELEPORTING..."),
+                                        ChatColor.translateAlternateColorCodes('&', "&fReturning to spawn"), 0, 25, 5);
+
+                                if (pl.isDead()) {
+                                    respawnAtHub.add(loserUuid);
+                                } else {
+                                    teleportToSpawn(pl);
+                                }
+                                org.bukkit.scheduler.BukkitTask t = loseTaskRef.get();
+                                if (t != null) t.cancel();
                             }
-                            org.bukkit.scheduler.BukkitTask t = loseTaskRef.get();
-                            if (t != null) t.cancel();
-                        }
+                        });
                     } catch (Throwable t) {
                         loserSeconds.decrementAndGet();
                     }
@@ -2077,11 +2214,14 @@ public class DuelArenaManager {
     }
 
     public boolean isLooting(Player player) {
-        return activeTasks.containsKey(player.getUniqueId());
+        if (player == null) return false;
+        return lootingPlayers.contains(player.getUniqueId());
     }
 
     public void stopLooting(Player player) {
+        if (player == null) return;
         java.util.UUID uuid = player.getUniqueId();
+        lootingPlayers.remove(uuid);
         if (activeTasks.containsKey(uuid)) {
             org.bukkit.scheduler.BukkitTask task = activeTasks.remove(uuid);
             if (task != null) {
@@ -2132,6 +2272,7 @@ public class DuelArenaManager {
         if (player == null) return;
         clearArenaWorldBorder(player);
         spectatingLosers.remove(player.getUniqueId());
+        lootingPlayers.remove(player.getUniqueId());
         pendingSpawnReset.remove(player.getUniqueId());
         teleportToSpawn(player);
     }
@@ -2217,6 +2358,7 @@ public class DuelArenaManager {
 
         java.util.UUID uuid = player.getUniqueId();
         spectatingLosers.remove(uuid);
+        lootingPlayers.remove(uuid);
         pendingSpawnReset.remove(uuid);
         activeTasks.remove(uuid);
         activeDuels.remove(uuid);
@@ -2235,23 +2377,33 @@ public class DuelArenaManager {
         if (spawn != null) {
             final Location targetSpawn = spawn.clone();
             org.bukkit.World targetWorld = targetSpawn.getWorld();
-            if (targetWorld != null) {
-                int chunkX = targetSpawn.getBlockX() >> 4;
-                int chunkZ = targetSpawn.getBlockZ() >> 4;
-                if (!targetWorld.isChunkLoaded(chunkX, chunkZ)) {
-                    targetWorld.loadChunk(chunkX, chunkZ, true);
-                }
-            }
 
             setInternalTeleporting(uuid, true);
             try {
-                player.teleport(targetSpawn, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN);
+                player.teleportAsync(targetSpawn).thenAccept(success -> {
+                    plugin.getSchedulerAdapter().runEntityTask(player, () -> {
+                        if (player.isOnline()) {
+                            if (player.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
+                                player.setGameMode(org.bukkit.GameMode.SURVIVAL);
+                            }
+                            player.setFallDistance(0);
+                            if (plugin.getScoreboardManager() != null) {
+                                plugin.getScoreboardManager().reloadScoreboard(player);
+                            }
+                            try { player.updateCommands(); } catch (Throwable ignored) {}
+                        }
+                    });
+                });
             } catch (Throwable t) {
                 try {
-                    player.teleportAsync(targetSpawn);
+                    player.teleport(targetSpawn, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN);
                 } catch (Throwable ignored) {}
             } finally {
-                setInternalTeleporting(uuid, false);
+                if (plugin.isEnabled()) {
+                    plugin.getSchedulerAdapter().runTaskLater(() -> setInternalTeleporting(uuid, false), 10L);
+                } else {
+                    setInternalTeleporting(uuid, false);
+                }
             }
 
             if (player.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
@@ -2263,7 +2415,7 @@ public class DuelArenaManager {
             }
             try { player.updateCommands(); } catch (Throwable ignored) {}
 
-            plugin.getSchedulerAdapter().runTaskLater(() -> {
+            plugin.getSchedulerAdapter().runEntityTaskLater(player, () -> {
                 if (player.isOnline()) {
                     if (player.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
                         player.setGameMode(org.bukkit.GameMode.SURVIVAL);
@@ -2271,9 +2423,15 @@ public class DuelArenaManager {
                     if (isLocationInArena(player.getLocation()) || (targetWorld != null && !player.getWorld().getName().equalsIgnoreCase(targetWorld.getName()))) {
                         setInternalTeleporting(uuid, true);
                         try {
-                            player.teleport(targetSpawn, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN);
+                            player.teleportAsync(targetSpawn);
+                        } catch (Throwable t) {
+                            try { player.teleport(targetSpawn, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN); } catch (Throwable ignored) {}
                         } finally {
-                            setInternalTeleporting(uuid, false);
+                            if (plugin.isEnabled()) {
+                                plugin.getSchedulerAdapter().runTaskLater(() -> setInternalTeleporting(uuid, false), 10L);
+                            } else {
+                                setInternalTeleporting(uuid, false);
+                            }
                         }
                     }
                     if (plugin.getScoreboardManager() != null) {
@@ -2281,7 +2439,7 @@ public class DuelArenaManager {
                     }
                     try { player.updateCommands(); } catch (Throwable ignored) {}
                 }
-            }, 2L);
+            }, 6L);
         } else {
             if (player.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
                 player.setGameMode(org.bukkit.GameMode.SURVIVAL);
@@ -2292,13 +2450,38 @@ public class DuelArenaManager {
         }
     }
 
+    public boolean isArenaOccupied(ArenaRegion region) {
+        if (region == null) return true;
+        String name = region.name;
+        for (java.util.Map.Entry<java.util.UUID, String> entry : playerArenas.entrySet()) {
+            if (name.equalsIgnoreCase(entry.getValue())) {
+                Player p = org.bukkit.Bukkit.getPlayer(entry.getKey());
+                if (p != null && p.isOnline()) {
+                    return true;
+                }
+            }
+        }
+        for (Player p : org.bukkit.Bukkit.getOnlinePlayers()) {
+            if (isInDuel(p) || isPreDuel(p) || isLooting(p) || isSpectatingEnding(p) || isSoloTest(p)) {
+                String pArena = playerArenas.get(p.getUniqueId());
+                if (name.equalsIgnoreCase(pArena)) {
+                    return true;
+                }
+                if (region.contains(p.getLocation())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     public ArenaRegion getAvailableArena(String biome, String preferredArena) {
         if (arenaMap.isEmpty())
             return null;
 
         if (preferredArena != null && !preferredArena.isEmpty()) {
             ArenaRegion pref = getArena(preferredArena);
-            if (pref != null && !playerArenas.containsValue(pref.name)) {
+            if (pref != null && !isArenaOccupied(pref)) {
                 ensureArenaSpawnsLoaded(pref);
                 if (pref.spawn1.getWorld() != null && pref.spawn2.getWorld() != null) {
                     if (arenaChanges.containsKey(pref.name)) {
@@ -2313,7 +2496,7 @@ public class DuelArenaManager {
         java.util.Collections.shuffle(regions);
 
         for (ArenaRegion region : regions) {
-            if (playerArenas.containsValue(region.name)) {
+            if (isArenaOccupied(region)) {
                 continue;
             }
 

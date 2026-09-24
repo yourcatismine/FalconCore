@@ -37,6 +37,8 @@ public class ShardsManager implements Listener {
     private int killRewardCooldown;
 
     private String activeActionbarMessage;
+    private String passiveActionbarMessage;
+    private String passiveSound;
 
     private final Map<UUID, Map<UUID, Long>> killCooldowns = new HashMap<>();
 
@@ -67,6 +69,9 @@ public class ShardsManager implements Listener {
 
         activeActionbarMessage = config.getString("messages.active.actionbar",
                 "&#A9833D+{shards} shards&7 for killing &f{PLAYER}");
+        passiveActionbarMessage = config.getString("messages.passive.actionbar",
+                "&7You have received &d{shard} shards.");
+        passiveSound = config.getString("sounds.passive", "BLOCK_AMETHYST_BLOCK_CHIME");
     }
 
     public void reloadConfig() {
@@ -125,18 +130,25 @@ public class ShardsManager implements Listener {
 
     private void givePassiveReward(Player player) {
         com.falconcore.survival.manager.PlayerData data = plugin.getPlayerDataManager().get(player.getUniqueId());
-        int amount;
+        if (data == null) return;
 
-        if (data.hasActiveShardBooster()) {
-            amount = 8;
-        } else {
-            amount = 2;
-        }
+        int amount = data.hasActiveShardBooster() ? (rewardAmount * 4) : rewardAmount;
 
         data.addShards(amount, "Passive Reward");
 
-        player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                TextComponent.fromLegacyText(ChatColor.translateAlternateColorCodes('&', "&d+" + amount + " shards")));
+        if (data.isShardsNotifier()) {
+            String msg = (passiveActionbarMessage != null && !passiveActionbarMessage.isEmpty())
+                    ? passiveActionbarMessage.replace("{shard}", String.valueOf(amount)).replace("{shards}", String.valueOf(amount))
+                    : "&d+" + amount + " shards";
+            player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
+                    TextComponent.fromLegacyText(ChatColor.translateAlternateColorCodes('&', msg)));
+
+            if (passiveSound != null && !passiveSound.isEmpty()) {
+                try {
+                    player.playSound(player.getLocation(), org.bukkit.Sound.valueOf(passiveSound), 1.0f, 1.0f);
+                } catch (Throwable ignored) {}
+            }
+        }
     }
 
     @EventHandler

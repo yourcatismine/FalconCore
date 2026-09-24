@@ -38,6 +38,7 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
         this.statsManager = new DuelStatsManager(plugin);
         this.queueManager = new DuelQueueManager(plugin, statsManager, arenaManager);
         this.queueManager.setRequestManager(this.requestManager);
+        this.arenaManager.setQueueManager(this.queueManager);
     }
 
 
@@ -72,7 +73,7 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
             org.bukkit.entity.Player player = (org.bukkit.entity.Player) sender;
 
             DuelMessageManager mm = arenaManager.getMessageManager();
-            if (arenaManager.isInDuel(player)) {
+            if (arenaManager.isInDuel(player) || arenaManager.isPreDuel(player)) {
                 if (arenaManager.isSoloTest(player)) {
                     String msg = org.bukkit.ChatColor.GRAY + "You exited the solo duel test.";
                     sender.sendMessage(msg);
@@ -81,12 +82,7 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
                     arenaManager.stopSoloTest(player);
                     return true;
                 }
-                String msg = mm.getMessage("forfeit", "&7You forfeited the match.");
-                sender.sendMessage(msg);
-                player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
-                        new net.md_5.bungee.api.chat.TextComponent(msg));
-                arenaManager.markForfeit(player);
-                player.setHealth(0);
+                arenaManager.forfeitDuel(player);
                 return true;
             }
 

@@ -38,9 +38,11 @@ cave-reveal-distance: 28
 anti-freecam:
   enabled: true
   # Horizontal rendering / visibility radius (in blocks) around player's true server-side location (default: 55 blocks / ~3.5 chunks)
-  distance: 50
+  distance: 55
   # Vertical downward distance (in blocks) below which subterranean deepslate caves are blocked with a Fake Deepslate floor (default: 80 blocks)
-  vertical-distance: 40
+  vertical-distance: 80
+  # Movement distance in blocks before refreshing nearby anti-freecam boundary chunks (lower = smoother & faster reveal, default: 2)
+  update-threshold-blocks: 2
   # Dimension settings for Anti-Freecam
   overworld:
     enabled: true

@@ -286,17 +286,17 @@ public class AntiXrayListener implements Listener {
                 tracker.lastChunkZ = chunkZ;
                 tracker.lastUpdateTime = System.currentTimeMillis();
 
-                // Fix 1: Cooldown gate — resend at most once every 800ms per player to prevent
-                // flooding the Netty pipeline with dozens of full chunk packets per second.
+                // Fast cooldown gate — resend at most once every 200ms per player to prevent
+                // flooding the Netty pipeline while keeping fake block removal instant and responsive.
                 long nowMs = System.currentTimeMillis();
                 Long lastResend = lastChunkResendTime.get(player.getUniqueId());
-                if (lastResend == null || (nowMs - lastResend) >= 800L) {
+                if (lastResend == null || (nowMs - lastResend) >= 200L) {
                     lastChunkResendTime.put(player.getUniqueId(), nowMs);
 
-                    // Cap chunk radius at 1 (3×3 = 9 chunks) — the anti-freecam distance is
-                    // already enforced per-block in processChunk; resending every chunk in the
-                    // full freecam radius on every move was the primary TPS killer.
-                    final int resendRadius = 1;
+                    // Dynamic chunk radius matching the anti-freecam boundary (up to 3 chunks / 7×7 grid)
+                    // so players don't have to walk right next to fake deepslate before it reveals.
+                    int freecamDist = config.getAntiFreecamDistance();
+                    final int resendRadius = Math.max(2, Math.min(3, freecamDist >> 4));
 
                     for (int cx = chunkX - resendRadius; cx <= chunkX + resendRadius; cx++) {
                         for (int cz = chunkZ - resendRadius; cz <= chunkZ + resendRadius; cz++) {
@@ -321,14 +321,11 @@ public class AntiXrayListener implements Listener {
         }
 
         // 2. Engine Mode 1 Exposed Cave Ore Restoration
-        // Fix 3: Cooldown gate — run at most once per second per player.
-        // The old code dispatched an individual runAtLocation scheduler task for every
-        // nearby exposed ore on every single block of movement, creating thousands of
-        // scheduled tasks per second with many players underground.
+        // Responsive cooldown gate — runs at most every 250ms per player.
         if (config.getEngineMode(world) == 1) {
             long nowMs = System.currentTimeMillis();
             Long lastRestore = lastOreRestoreTime.get(player.getUniqueId());
-            if (lastRestore == null || (nowMs - lastRestore) >= 1000L) {
+            if (lastRestore == null || (nowMs - lastRestore) >= 250L) {
                 lastOreRestoreTime.put(player.getUniqueId(), nowMs);
 
                 int caveDist = config.getCaveRevealDistance();

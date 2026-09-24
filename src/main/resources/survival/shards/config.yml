@@ -1,5 +1,5 @@
 interval: 60
-amount: 2
+amount: 1
 permission: "falcon.shards.passive"
 
 kill-reward:

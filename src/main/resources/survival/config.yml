@@ -80,8 +80,8 @@ combat:
   - "team"
 
 disabled-fly:
-  - world_nether
-  - world_the_end
+  - the_nether
+  - the_end
 
 command-whitelist:
   enabled: true

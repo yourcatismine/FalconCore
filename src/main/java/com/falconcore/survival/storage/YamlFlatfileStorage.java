@@ -8,6 +8,7 @@ import com.falconcore.survival.spawners.storage.SpawnerData;
 import com.falconcore.survival.spawners.mob.SpawnerType;
 import com.falconcore.survival.storage.YamlFlatfileStorage;
 import com.falconcore.survival.death.DeathRecord;
+import com.falconcore.survival.history.BlockHistoryEntry;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.Location;
@@ -63,6 +64,7 @@ public class YamlFlatfileStorage {
     private final File spawnersFile;
     private final File afkRegionsFile;
     private final File blockHistoryFile;
+    private final File blockHistoryFolder;
     private final File pvpSafeZonesFile;
     private final File temporaryBlocksFile;
     private final File auctionListingsFile;
@@ -103,6 +105,7 @@ public class YamlFlatfileStorage {
         this.spawnersFile = new File(dataFolder, "server/spawners.yml");
         this.afkRegionsFile = new File(dataFolder, "server/afk_regions.yml");
         this.blockHistoryFile = new File(dataFolder, "server/block_history.yml");
+        this.blockHistoryFolder = mkdirs("server/block_history");
         this.pvpSafeZonesFile = new File(dataFolder, "server/pvp_safe_zones.yml");
         this.temporaryBlocksFile = new File(dataFolder, "server/temporary_blocks.yml");
         this.auctionListingsFile = new File(dataFolder, "server/auctions/listings.yml");
@@ -1924,5 +1927,152 @@ public class YamlFlatfileStorage {
     public DeathRecord getLatestDeathRecord(UUID uuid) {
         List<DeathRecord> records = getDeathRecords(uuid, 1);
         return records.isEmpty() ? null : records.get(0);
+    }
+
+    public void logBlockHistoryBatch(List<BlockHistoryEntry> entries) {
+        if (entries == null || entries.isEmpty()) return;
+
+        plugin.getSchedulerAdapter().runTaskAsync(() -> {
+            Map<String, List<BlockHistoryEntry>> byChunk = new HashMap<>();
+            for (BlockHistoryEntry entry : entries) {
+                int cx = entry.getX() >> 4;
+                int cz = entry.getZ() >> 4;
+                String key = entry.getWorld() + "_" + cx + "_" + cz;
+                byChunk.computeIfAbsent(key, k -> new ArrayList<>()).add(entry);
+            }
+
+            for (Map.Entry<String, List<BlockHistoryEntry>> entrySet : byChunk.entrySet()) {
+                File chunkFile = new File(blockHistoryFolder, entrySet.getKey() + ".yml");
+                FileConfiguration cfg = loadYaml(chunkFile);
+                for (BlockHistoryEntry e : entrySet.getValue()) {
+                    String idKey = String.valueOf(e.getTimestamp()) + "_" + UUID.randomUUID().toString().substring(0, 8);
+                    cfg.set(idKey + ".world", e.getWorld());
+                    cfg.set(idKey + ".x", e.getX());
+                    cfg.set(idKey + ".y", e.getY());
+                    cfg.set(idKey + ".z", e.getZ());
+                    cfg.set(idKey + ".uuid", e.getPlayerUuid() != null ? e.getPlayerUuid().toString() : "");
+                    cfg.set(idKey + ".player", e.getPlayerName());
+                    cfg.set(idKey + ".action", e.getAction());
+                    cfg.set(idKey + ".block", e.getBlockType());
+                    cfg.set(idKey + ".details", e.getDetails());
+                    cfg.set(idKey + ".time", e.getTimestamp());
+                }
+
+                // Trim oldest if chunk has more than 500 records
+                Set<String> keys = cfg.getKeys(false);
+                if (keys.size() > 500) {
+                    List<String> keyList = new ArrayList<>(keys);
+                    keyList.sort(Comparator.comparingLong(k -> cfg.getLong(k + ".time", 0)));
+                    int toRemove = keys.size() - 500;
+                    for (int i = 0; i < toRemove; i++) {
+                        cfg.set(keyList.get(i), null);
+                    }
+                }
+                saveYaml(cfg, chunkFile);
+            }
+        });
+    }
+
+    public List<BlockHistoryEntry> getBlockHistory(String world, int x, int y, int z, int limit) {
+        List<BlockHistoryEntry> list = new ArrayList<>();
+        int cx = x >> 4;
+        int cz = z >> 4;
+        File chunkFile = new File(blockHistoryFolder, world + "_" + cx + "_" + cz + ".yml");
+        if (!chunkFile.exists()) return list;
+
+        FileConfiguration cfg = loadYaml(chunkFile);
+        for (String k : cfg.getKeys(false)) {
+            if (cfg.getInt(k + ".x") == x && cfg.getInt(k + ".y") == y && cfg.getInt(k + ".z") == z) {
+                String uStr = cfg.getString(k + ".uuid", "");
+                UUID u = (uStr != null && !uStr.isEmpty()) ? UUID.fromString(uStr) : null;
+                list.add(new BlockHistoryEntry(
+                        0,
+                        cfg.getString(k + ".world", world),
+                        x, y, z,
+                        u,
+                        cfg.getString(k + ".player", "Unknown"),
+                        cfg.getString(k + ".action", "BREAK"),
+                        cfg.getString(k + ".block", "AIR"),
+                        cfg.getString(k + ".details", ""),
+                        cfg.getLong(k + ".time", 0)
+                ));
+            }
+        }
+        list.sort((a, b) -> Long.compare(b.getTimestamp(), a.getTimestamp()));
+        if (limit > 0 && list.size() > limit) {
+            return new ArrayList<>(list.subList(0, limit));
+        }
+        return list;
+    }
+
+    public List<BlockHistoryEntry> getAreaHistory(String world, int minX, int maxX, int minY, int maxY, int minZ, int maxZ, int limit) {
+        List<BlockHistoryEntry> list = new ArrayList<>();
+        int minCx = minX >> 4;
+        int maxCx = maxX >> 4;
+        int minCz = minZ >> 4;
+        int maxCz = maxZ >> 4;
+
+        for (int cx = minCx; cx <= maxCx; cx++) {
+            for (int cz = minCz; cz <= maxCz; cz++) {
+                File chunkFile = new File(blockHistoryFolder, world + "_" + cx + "_" + cz + ".yml");
+                if (!chunkFile.exists()) continue;
+
+                FileConfiguration cfg = loadYaml(chunkFile);
+                for (String k : cfg.getKeys(false)) {
+                    int bx = cfg.getInt(k + ".x");
+                    int by = cfg.getInt(k + ".y");
+                    int bz = cfg.getInt(k + ".z");
+
+                    if (bx >= minX && bx <= maxX && by >= minY && by <= maxY && bz >= minZ && bz <= maxZ) {
+                        String uStr = cfg.getString(k + ".uuid", "");
+                        UUID u = (uStr != null && !uStr.isEmpty()) ? UUID.fromString(uStr) : null;
+                        list.add(new BlockHistoryEntry(
+                                0,
+                                cfg.getString(k + ".world", world),
+                                bx, by, bz,
+                                u,
+                                cfg.getString(k + ".player", "Unknown"),
+                                cfg.getString(k + ".action", "BREAK"),
+                                cfg.getString(k + ".block", "AIR"),
+                                cfg.getString(k + ".details", ""),
+                                cfg.getLong(k + ".time", 0)
+                        ));
+                    }
+                }
+            }
+        }
+
+        list.sort((a, b) -> Long.compare(b.getTimestamp(), a.getTimestamp()));
+        if (limit > 0 && list.size() > limit) {
+            return new ArrayList<>(list.subList(0, limit));
+        }
+        return list;
+    }
+
+    public void purgeOldBlockHistory(long maxAgeMs) {
+        plugin.getSchedulerAdapter().runTaskAsync(() -> {
+            long cutoff = System.currentTimeMillis() - maxAgeMs;
+            File[] files = blockHistoryFolder.listFiles((dir, name) -> name.endsWith(".yml"));
+            if (files == null) return;
+
+            for (File file : files) {
+                FileConfiguration cfg = loadYaml(file);
+                boolean changed = false;
+                for (String k : new ArrayList<>(cfg.getKeys(false))) {
+                    long t = cfg.getLong(k + ".time", 0);
+                    if (t < cutoff) {
+                        cfg.set(k, null);
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    if (cfg.getKeys(false).isEmpty()) {
+                        file.delete();
+                    } else {
+                        saveYaml(cfg, file);
+                    }
+                }
+            }
+        });
     }
 }

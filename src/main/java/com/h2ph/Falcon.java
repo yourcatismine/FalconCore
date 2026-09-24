@@ -138,6 +138,12 @@ public class Falcon extends JavaPlugin {
         return falconBotManager;
     }
 
+    private com.falconcore.survival.history.BlockHistoryManager blockHistoryManager;
+
+    public com.falconcore.survival.history.BlockHistoryManager getBlockHistoryManager() {
+        return blockHistoryManager;
+    }
+
     public com.falconcore.survival.manager.DiscordWebhookManager getDiscordWebhookManager() {
         return discordWebhookManager;
     }
@@ -737,6 +743,21 @@ public class Falcon extends JavaPlugin {
         this.antiCheatManager = new com.falconcore.anticheat.AntiCheatManager(this);
         this.antiXrayManager = new com.falconcore.antixray.AntiXrayManager(this);
 
+        this.blockHistoryManager = new com.falconcore.survival.history.BlockHistoryManager(this, databaseManager);
+        getServer().getPluginManager().registerEvents(new com.falconcore.survival.history.BlockHistoryListener(blockHistoryManager), this);
+        getServer().getPluginManager().registerEvents(new com.falconcore.survival.history.BlockHistoryGUIListener(), this);
+
+        com.falconcore.survival.history.InspectCommand inspectCmd = new com.falconcore.survival.history.InspectCommand(blockHistoryManager);
+        this.blockHistoryManager.setInspectCommand(inspectCmd);
+        if (getCommand("inspect") != null) {
+            getCommand("inspect").setExecutor(inspectCmd);
+            getCommand("inspect").setTabCompleter(inspectCmd);
+        }
+        if (getCommand("basehistory") != null) {
+            getCommand("basehistory").setExecutor(inspectCmd);
+            getCommand("basehistory").setTabCompleter(inspectCmd);
+        }
+
         getCommand("stats").setExecutor(new com.h2ph.commands.player.StatsCommand(this));
 
         getCommand("hide").setExecutor(new com.h2ph.commands.player.HideNameCommand(this));
@@ -943,6 +964,10 @@ public class Falcon extends JavaPlugin {
 
         if (this.antiXrayManager != null) {
             this.antiXrayManager.shutdown();
+        }
+
+        if (this.blockHistoryManager != null) {
+            this.blockHistoryManager.shutdown();
         }
 
         if (this.duelArenaManager != null) {

@@ -240,6 +240,18 @@ commands:
     usage: /ah <search>
     aliases: []
 
+  inspect:
+    description: Inspect block and base raid history
+    permission: falcon.inspect
+    usage: /inspect [on|off|wand|here [radius]]
+    aliases: []
+
+  basehistory:
+    description: View raid and block history in an area around you
+    permission: falcon.inspect
+    usage: /basehistory [radius]
+    aliases: []
+
   auction:
     description: Admin commands for the auction system
     usage: /auction <reload>
@@ -454,6 +466,9 @@ permissions:
   falcon.redstone:
     description: Permission to use /redstone admin commands
     default: false
+  falcon.fly.bypass:
+    description: Allows bypassing flight restrictions in disabled worlds
+    default: false
   falcon.combat.bypass:
     description: Allows bypassing combat logging restrictions
     default: false
@@ -628,4 +643,8 @@ permissions:
 
   falcon.casino.admin:
     description: Permission to manage casino and reload casino configuration
+    default: op
+
+  falcon.inspect:
+    description: Permission to inspect block and raid history
     default: op

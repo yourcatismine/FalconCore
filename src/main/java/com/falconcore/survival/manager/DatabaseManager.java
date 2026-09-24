@@ -10,6 +10,7 @@ import com.falconcore.survival.spawners.storage.SpawnerData;
 import com.falconcore.survival.spawners.mob.SpawnerType;
 import com.falconcore.anticheat.data.AntiCheatLogEntry;
 import com.falconcore.survival.death.DeathRecord;
+import com.falconcore.survival.history.BlockHistoryEntry;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -453,6 +454,19 @@ public class DatabaseManager {
                     "INDEX timestamp_idx (timestamp)" +
                     ")";
             s.execute(blockHistoryTable);
+
+            try {
+                s.execute("ALTER TABLE block_history ADD COLUMN details VARCHAR(255) DEFAULT ''");
+            } catch (SQLException ignored) {
+            }
+            try {
+                s.execute("ALTER TABLE block_history ADD INDEX area_idx (world, x, z)");
+            } catch (SQLException ignored) {
+            }
+            try {
+                s.execute("ALTER TABLE block_history ADD INDEX player_idx (player_name)");
+            } catch (SQLException ignored) {
+            }
 
             String pvpSafeZonesTable = "CREATE TABLE IF NOT EXISTS pvp_safe_zones (" +
                     "id INT AUTO_INCREMENT PRIMARY KEY," +
@@ -2336,5 +2350,150 @@ public class DatabaseManager {
         }
         List<DeathRecord> records = getDeathRecords(uuid, 1);
         return records.isEmpty() ? null : records.get(0);
+    }
+
+    public void logBlockHistoryBatch(List<BlockHistoryEntry> entries) {
+        if (flatfileMode) {
+            yamlStorage.logBlockHistoryBatch(entries);
+            return;
+        }
+        if (!isConnected() || entries == null || entries.isEmpty()) return;
+
+        plugin.getSchedulerAdapter().runTaskAsync(() -> {
+            String sql = "INSERT INTO block_history (world, x, y, z, player_uuid, player_name, action, block_type, details, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            try (Connection conn = getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
+                for (BlockHistoryEntry entry : entries) {
+                    ps.setString(1, entry.getWorld());
+                    ps.setInt(2, entry.getX());
+                    ps.setInt(3, entry.getY());
+                    ps.setInt(4, entry.getZ());
+                    ps.setString(5, entry.getPlayerUuid() != null ? entry.getPlayerUuid().toString() : "");
+                    ps.setString(6, entry.getPlayerName());
+                    ps.setString(7, entry.getAction());
+                    ps.setString(8, entry.getBlockType());
+                    ps.setString(9, entry.getDetails());
+                    ps.setLong(10, entry.getTimestamp());
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to insert block history batch of size " + entries.size(), e);
+            }
+        });
+    }
+
+    public List<BlockHistoryEntry> getBlockHistory(String world, int x, int y, int z, int limit) {
+        if (flatfileMode) {
+            return yamlStorage.getBlockHistory(world, x, y, z, limit);
+        }
+        List<BlockHistoryEntry> list = new ArrayList<>();
+        if (!isConnected()) return list;
+
+        String sql = "SELECT * FROM block_history WHERE world = ? AND x = ? AND y = ? AND z = ? ORDER BY timestamp DESC LIMIT ?";
+        try (Connection conn = getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, world);
+            ps.setInt(2, x);
+            ps.setInt(3, y);
+            ps.setInt(4, z);
+            ps.setInt(5, limit > 0 ? limit : 500);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String uuidStr = rs.getString("player_uuid");
+                    UUID uuid = (uuidStr != null && !uuidStr.isEmpty()) ? UUID.fromString(uuidStr) : null;
+                    String details = "";
+                    try {
+                        details = rs.getString("details");
+                    } catch (SQLException ignored) {}
+
+                    list.add(new BlockHistoryEntry(
+                            rs.getLong("id"),
+                            rs.getString("world"),
+                            rs.getInt("x"),
+                            rs.getInt("y"),
+                            rs.getInt("z"),
+                            uuid,
+                            rs.getString("player_name"),
+                            rs.getString("action"),
+                            rs.getString("block_type"),
+                            details,
+                            rs.getLong("timestamp")
+                    ));
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to query block history at " + world + " " + x + "," + y + "," + z, e);
+        }
+        return list;
+    }
+
+    public List<BlockHistoryEntry> getAreaHistory(String world, int minX, int maxX, int minY, int maxY, int minZ, int maxZ, int limit) {
+        if (flatfileMode) {
+            return yamlStorage.getAreaHistory(world, minX, maxX, minY, maxY, minZ, maxZ, limit);
+        }
+        List<BlockHistoryEntry> list = new ArrayList<>();
+        if (!isConnected()) return list;
+
+        String sql = "SELECT * FROM block_history WHERE world = ? AND x >= ? AND x <= ? AND y >= ? AND y <= ? AND z >= ? AND z <= ? ORDER BY timestamp DESC LIMIT ?";
+        try (Connection conn = getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, world);
+            ps.setInt(2, minX);
+            ps.setInt(3, maxX);
+            ps.setInt(4, minY);
+            ps.setInt(5, maxY);
+            ps.setInt(6, minZ);
+            ps.setInt(7, maxZ);
+            ps.setInt(8, limit > 0 ? limit : 1000);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String uuidStr = rs.getString("player_uuid");
+                    UUID uuid = (uuidStr != null && !uuidStr.isEmpty()) ? UUID.fromString(uuidStr) : null;
+                    String details = "";
+                    try {
+                        details = rs.getString("details");
+                    } catch (SQLException ignored) {}
+
+                    list.add(new BlockHistoryEntry(
+                            rs.getLong("id"),
+                            rs.getString("world"),
+                            rs.getInt("x"),
+                            rs.getInt("y"),
+                            rs.getInt("z"),
+                            uuid,
+                            rs.getString("player_name"),
+                            rs.getString("action"),
+                            rs.getString("block_type"),
+                            details,
+                            rs.getLong("timestamp")
+                    ));
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().log(Level.WARNING, "Failed to query area history in " + world, e);
+        }
+        return list;
+    }
+
+    public void purgeOldBlockHistory(long maxAgeMs) {
+        if (flatfileMode) {
+            yamlStorage.purgeOldBlockHistory(maxAgeMs);
+            return;
+        }
+        if (!isConnected()) return;
+
+        long cutoff = System.currentTimeMillis() - maxAgeMs;
+        plugin.getSchedulerAdapter().runTaskAsync(() -> {
+            String sql = "DELETE FROM block_history WHERE timestamp < ?";
+            try (Connection conn = getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setLong(1, cutoff);
+                int deleted = ps.executeUpdate();
+                if (deleted > 0) {
+                    plugin.getLogger().info("Purged " + deleted + " old block history entries older than " + (maxAgeMs / 86400000L) + " days.");
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().log(Level.WARNING, "Failed to purge old block history", e);
+            }
+        });
     }
 }

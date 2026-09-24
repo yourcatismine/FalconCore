@@ -297,38 +297,11 @@ public class DuelGameListener implements Listener {
             arenaManager.cleanupElevator(leaver);
             arenaManager.clearSpectatorLocation(leaver);
             arenaManager.stopLooting(leaver);
-            arenaManager.cleanupPendings(leaver);
 
-            if (arenaManager.isInDuel(leaver)) {
-                arenaManager.markForfeit(leaver);
-                arenaManager.markPendingSpawnReset(leaver.getUniqueId());
-
-                Player opponent = arenaManager.getOpponent(leaver);
-
-                // Drop all inventory items naturally at leaver location for combat log (each item dropped exactly once)
-                org.bukkit.Location dropLoc = leaver.getLocation();
-                org.bukkit.World world = dropLoc.getWorld();
-                if (world != null) {
-                    org.bukkit.inventory.ItemStack[] contents = leaver.getInventory().getContents();
-                    for (int i = 0; i < contents.length; i++) {
-                        org.bukkit.inventory.ItemStack item = contents[i];
-                        if (item != null && item.getType() != org.bukkit.Material.AIR && item.getAmount() > 0) {
-                            world.dropItemNaturally(dropLoc, item.clone());
-                        }
-                    }
-                }
-
-                leaver.getInventory().clear();
-                leaver.getInventory().setArmorContents(new org.bukkit.inventory.ItemStack[4]);
-                leaver.getInventory().setItemInOffHand(null);
-
-                if (opponent != null && opponent.isOnline()) {
-                    opponent.sendMessage(org.bukkit.ChatColor.RED + leaver.getName() + " left the match! You won by forfeit.");
-                    arenaManager.endDuel(opponent, leaver, DuelArenaManager.WinReason.FORFEIT);
-                } else {
-                    arenaManager.resetPlayer(leaver);
-                }
+            if (arenaManager.isInDuel(leaver) || arenaManager.isPreDuel(leaver)) {
+                arenaManager.forfeitDuel(leaver);
             } else {
+                arenaManager.cleanupPendings(leaver);
                 arenaManager.resetPlayer(leaver);
             }
         }
@@ -616,6 +589,9 @@ public class DuelGameListener implements Listener {
     public void onPlayerTeleport(org.bukkit.event.player.PlayerTeleportEvent event) {
         Player player = event.getPlayer();
         if (arenaManager != null && arenaManager.isInternalTeleporting(player)) {
+            return;
+        }
+        if (arenaManager != null && arenaManager.isSpectatingEnding(player)) {
             return;
         }
         if (arenaManager.isPreDuel(player)) {

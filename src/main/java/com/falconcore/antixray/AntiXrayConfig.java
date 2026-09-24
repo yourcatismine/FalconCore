@@ -44,7 +44,7 @@ public class AntiXrayConfig {
     private int antiFreecamOverworldMaxY = 0;
     private int antiFreecamNetherMaxY = 127;
     private int antiFreecamEndMaxY = 255;
-    private int antiFreecamUpdateThresholdBlocks = 6;
+    private int antiFreecamUpdateThresholdBlocks = 2;
 
     private String bypassPermission = "falcon.antixray.bypass";
     private String adminPermission = "falcon.antixray.admin";
@@ -109,7 +109,7 @@ public class AntiXrayConfig {
         this.antiFreecamOverworldMaxY = config.getInt("anti-freecam.overworld.max-y", config.getInt("anti-freecam.overworld-max-y", 0));
         this.antiFreecamNetherMaxY = config.getInt("anti-freecam.nether.max-y", config.getInt("anti-freecam.nether-max-y", 127));
         this.antiFreecamEndMaxY = config.getInt("anti-freecam.end.max-y", config.getInt("anti-freecam.end-max-y", 255));
-        this.antiFreecamUpdateThresholdBlocks = config.getInt("anti-freecam.update-threshold-blocks", 6);
+        this.antiFreecamUpdateThresholdBlocks = config.getInt("anti-freecam.update-threshold-blocks", 2);
 
         this.bypassPermission = config.getString("permissions.bypass", "falcon.antixray.bypass");
         this.adminPermission = config.getString("permissions.admin", "falcon.antixray.admin");
