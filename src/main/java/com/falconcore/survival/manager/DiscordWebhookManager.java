@@ -38,6 +38,9 @@ public class DiscordWebhookManager {
     private final boolean anticheatEnabled;
     private final String  anticheatWebhook;
 
+    private final boolean clientCheckerEnabled;
+    private final String  clientCheckerWebhook;
+
     private final String serverIconUrl;
 
     public DiscordWebhookManager(Falcon plugin) {
@@ -64,6 +67,9 @@ public class DiscordWebhookManager {
 
         anticheatEnabled = cfg.getBoolean("discord-webhooks.anticheat.enabled", true);
         anticheatWebhook = cfg.getString("discord-webhooks.anticheat.webhook-url", "");
+
+        clientCheckerEnabled = cfg.getBoolean("discord-webhooks.client-checker.enabled", true);
+        clientCheckerWebhook = cfg.getString("discord-webhooks.client-checker.webhook-url", "");
 
         serverIconUrl   = cfg.getString("discord-webhooks.server-icon-url", "");
     }
@@ -219,6 +225,82 @@ public class DiscordWebhookManager {
                 + buildField("Storage Page", String.valueOf(page), true)
                 + "]";
         sendEmbedWithFields(spawnerWebhook, player.getName(), player.getUniqueId().toString(), description, 0x22A379, title, fields);
+    }
+
+    public String getEffectiveClientCheckerWebhook() {
+        if (plugin != null && plugin.getSurvivalConfig() != null) {
+            String survivalUrl = plugin.getSurvivalConfig().getString("discord-webhooks.client-checker.webhook-url", clientCheckerWebhook);
+            if (survivalUrl != null && !survivalUrl.isBlank()) {
+                return survivalUrl.trim();
+            }
+        }
+        return clientCheckerWebhook != null ? clientCheckerWebhook : "";
+    }
+
+    public boolean isClientCheckerEnabled() {
+        if (plugin != null && plugin.getSurvivalConfig() != null) {
+            return plugin.getSurvivalConfig().getBoolean("discord-webhooks.client-checker.enabled", clientCheckerEnabled);
+        }
+        return clientCheckerEnabled;
+    }
+
+    public void sendClientCheckerScan(org.bukkit.entity.Player player, String brand, String loader, java.util.Collection<String> detectedMods, int channelCount, String status) {
+        String url = getEffectiveClientCheckerWebhook();
+        if (url == null || url.isBlank() || url.contains("WEBHOOK_ID") || !isClientCheckerEnabled()) return;
+        if (player == null || isBot(player.getName(), player.getUniqueId().toString())) return;
+
+        String title = "🔍 Player Client Check";
+        String description = "Player **" + player.getName() + "** joined the server and was scanned by Falcon Client Checker.";
+
+        String modsList = (detectedMods == null || detectedMods.isEmpty()) ? "None (Vanilla / Clean)" : String.join(", ", detectedMods);
+        if (modsList.length() > 500) {
+            modsList = modsList.substring(0, 497) + "...";
+        }
+
+        boolean isClean = status != null && (status.equalsIgnoreCase("Clean") || status.toLowerCase().contains("passed") || status.toLowerCase().contains("clean"));
+        int color = isClean ? 0x57F287 : 0xED4245;
+
+        String fields = "["
+                + buildField("Player", player.getName(), true) + ","
+                + buildField("Client Brand", (brand != null && !brand.isBlank()) ? brand : "vanilla", true) + ","
+                + buildField("Loader", (loader != null && !loader.isBlank()) ? loader : "Vanilla", true) + ","
+                + buildField("Status", isClean ? "✅ " + status : "⚠️ " + status, true) + ","
+                + buildField("Channels Registered", channelCount + " channel(s)", true) + ","
+                + buildField("Detected Mods", modsList, false)
+                + "]";
+
+        sendEmbedWithFields(url, player.getName(), player.getUniqueId().toString(), description, color, title, fields);
+    }
+
+    public void sendClientCheckerDetection(org.bukkit.entity.Player player, String cheatName, String detectionSource, String actionTaken, String brand, String loader) {
+        String url = getEffectiveClientCheckerWebhook();
+        if (url == null || url.isBlank() || url.contains("WEBHOOK_ID") || !isClientCheckerEnabled()) return;
+        if (player == null || isBot(player.getName(), player.getUniqueId().toString())) return;
+
+        String title = "🚨 Illegal Client / Mod Detected";
+        String description = "Player **" + player.getName() + "** was detected using unauthorized modifications and removed from the server.";
+        String dateStr = new java.text.SimpleDateFormat("MMM dd, yyyy HH:mm:ss").format(new java.util.Date());
+
+        String safeBrand = (brand != null && !brand.isBlank() && !brand.equalsIgnoreCase("unknown")) ? brand : "Vanilla";
+        String safeLoader = (loader != null && !loader.isBlank() && !loader.equalsIgnoreCase("unknown")) ? loader : safeBrand;
+
+        String clientInfo;
+        if (safeBrand.equalsIgnoreCase(safeLoader)) {
+            clientInfo = safeLoader;
+        } else {
+            clientInfo = safeBrand + " (" + safeLoader + ")";
+        }
+
+        String fields = "["
+                + buildField("Player", player.getName(), true) + ","
+                + buildField("Cheat / Mod", cheatName != null ? cheatName : "Unknown", true) + ","
+                + buildField("Detection Source", detectionSource != null ? detectionSource : "Checker", true) + ","
+                + buildField("Action Taken", actionTaken != null ? actionTaken : "Kicked", true) + ","
+                + buildField("Client Brand", clientInfo, true) + ","
+                + buildField("Date & Time", dateStr, true)
+                + "]";
+
+        sendEmbedWithFields(url, player.getName(), player.getUniqueId().toString(), description, 0xED4245, title, fields);
     }
 
     private String formatLoc(org.bukkit.Location loc) {

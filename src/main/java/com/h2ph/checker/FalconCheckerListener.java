@@ -105,8 +105,21 @@ public class FalconCheckerListener implements Listener {
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
+    public void onAsyncPreLogin(org.bukkit.event.player.AsyncPlayerPreLoginEvent event) {
+        if (event.getLoginResult() == org.bukkit.event.player.AsyncPlayerPreLoginEvent.Result.ALLOWED) {
+            manager.clearPlayerData(event.getUniqueId());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPlayerLogin(org.bukkit.event.player.PlayerLoginEvent event) {
+        manager.clearPlayerData(event.getPlayer().getUniqueId());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(org.bukkit.event.player.PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        manager.clearPlayerData(player.getUniqueId());
         if (manager.getPlugin().getFalconBotManager() != null && (manager.getPlugin().getFalconBotManager().isBot(player.getUniqueId()) || manager.getPlugin().getFalconBotManager().isBot(player.getName()))) {
             return;
         }
@@ -114,28 +127,29 @@ public class FalconCheckerListener implements Listener {
             manager.debug("Player " + player.getName() + " is a Bedrock/Geyser player — skipping auto check on join.");
             return;
         }
-        if (manager.getConfig().getBoolean("auto-check-on-join.enabled", true)) {
-            manager.debug("Player " + player.getName() + " joined — queuing auto key check in 40 ticks...");
+        boolean autoCheck = manager.getConfig().getBoolean("auto-check-on-join.enabled", true);
+        boolean signProbe = manager.getConfig().getBoolean("auto-check-on-join.sign-probe", true);
+        if (autoCheck && signProbe) {
+            long probeDelay = manager.getConfig().getLong("auto-check-on-join.sign-probe-delay-ticks", 6L);
+            manager.debug("Player " + player.getName() + " joined — queuing auto key check in " + probeDelay + " ticks (seamless loading screen check)...");
             manager.getPlugin().getSchedulerAdapter().runEntityTaskLater(player, () -> {
                 if (player.isOnline()) {
                     manager.startCheck(player, null, "Join");
                 }
-            }, 40L);
+            }, probeDelay);
         }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
         UUID uuid = event.getPlayer().getUniqueId();
-        manager.finishCheck(uuid);
-        manager.clearActioned(uuid);
+        manager.clearPlayerData(uuid);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onKick(PlayerKickEvent event) {
         UUID uuid = event.getPlayer().getUniqueId();
-        manager.finishCheck(uuid);
-        manager.clearActioned(uuid);
+        manager.clearPlayerData(uuid);
     }
 
     public void cleanup() {

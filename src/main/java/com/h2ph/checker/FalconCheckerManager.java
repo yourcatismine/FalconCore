@@ -127,10 +127,20 @@ public class FalconCheckerManager {
 
     private void registerBuiltinHacks() {
         addBuiltin("meteor-client", "Meteor Client", "key.meteor-client.open-gui", DetectionMode.METEOR);
-        addBuiltin("freecam", "Freecam", "freecam.config.gui.title", DetectionMode.TRANSLATE);
-        addBuiltin("freecam-msg", "Freecam", "freecam.msg.enabled", DetectionMode.TRANSLATE);
+        addBuiltin("freecam", "Freecam", "key.freecam.toggle", DetectionMode.TRANSLATE);
+        addBuiltin("freecam-toggle", "Freecam", "key.freecam.toggle", DetectionMode.TRANSLATE);
         addBuiltin("freecam-key", "Freecam", "key.freecam.toggle", DetectionMode.TRANSLATE);
+        addBuiltin("freecam-cat", "Freecam", "key.category.freecam", DetectionMode.TRANSLATE);
+        addBuiltin("freecam-category", "Freecam", "key.category.freecam", DetectionMode.TRANSLATE);
         addBuiltin("freecam-controls", "Freecam", "key.category.freecam.controls", DetectionMode.TRANSLATE);
+        addBuiltin("freecam-player-control", "Freecam", "key.freecam.player_control", DetectionMode.TRANSLATE);
+        addBuiltin("freecam-tripod", "Freecam", "key.freecam.tripod", DetectionMode.TRANSLATE);
+        addBuiltin("freecam-camera", "Freecam", "key.freecam.camera", DetectionMode.TRANSLATE);
+        addBuiltin("freecam-msg", "Freecam", "msg.freecam.enable", DetectionMode.TRANSLATE);
+        addBuiltin("freecam-title", "Freecam", "text.autoconfig.freecam.title", DetectionMode.TRANSLATE);
+        addBuiltin("freecam-flight", "Freecam", "text.autoconfig.freecam.option.freecamFlight", DetectionMode.TRANSLATE);
+        addBuiltin("freecam-flight-mode", "Freecam", "text.autoconfig.freecam.option.flightMode", DetectionMode.TRANSLATE);
+        addBuiltin("freecam-gui", "Freecam", "freecam.config.gui.title", DetectionMode.TRANSLATE);
         addBuiltin("freecamz", "FreecamZ", "key.zergatul.freecam.toggle", DetectionMode.TRANSLATE);
         addBuiltin("liquidbounce", "LiquidBounce", "liquidbounce.module.killaura.name", DetectionMode.TRANSLATE);
         addBuiltin("bleachhack", "BleachHack", "bleachhack.module.killaura", DetectionMode.TRANSLATE);
@@ -152,7 +162,10 @@ public class FalconCheckerManager {
         addBuiltin("seedcrackerx", "SeedCrackerX", "title.seedcracker.gui", DetectionMode.TRANSLATE);
         addBuiltin("seedcrackerx-key", "SeedCrackerX", "key.seedcrackerx.gui", DetectionMode.KEYBIND);
         addBuiltin("xaeros-minimap", "Xaero's Minimap", "gui.xaero_minimap", DetectionMode.TRANSLATE);
+        addBuiltin("xaerominimap", "Xaero's Minimap", "gui.xaero_minimap", DetectionMode.TRANSLATE);
         addBuiltin("xaeros-world-map", "Xaero's World Map", "gui.xaero_world_map", DetectionMode.TRANSLATE);
+        addBuiltin("xaeroworldmap", "Xaero's World Map", "gui.xaero_world_map", DetectionMode.TRANSLATE);
+        addBuiltin("chesttracker", "Chest Tracker", "key.chesttracker.open_gui", DetectionMode.KEYBIND);
         addBuiltin("baritone", "Baritone", "baritone.prefix", DetectionMode.TRANSLATE);
         addBuiltin("baritone-key", "Baritone", "key.baritone.open_gui", DetectionMode.KEYBIND);
         addBuiltin("lambda", "Lambda Client", "lambda.module.killaura", DetectionMode.TRANSLATE);
@@ -262,6 +275,7 @@ public class FalconCheckerManager {
 
     public boolean startCheck(Player target, CommandSender initiator, String reason) {
         UUID targetUUID = target.getUniqueId();
+        actionedPlayers.remove(targetUUID);
 
         if (activeChecks.containsKey(targetUUID)) {
             if (initiator != null) {
@@ -344,11 +358,7 @@ public class FalconCheckerManager {
         long token = System.currentTimeMillis();
         data.setTimeoutToken(token);
 
-        Location playerLoc = target.getLocation();
-        Location signLoc = playerLoc.clone();
-        signLoc.setX(playerLoc.getBlockX());
-        signLoc.setY(Math.max(playerLoc.getWorld().getMinHeight() + 1, playerLoc.getBlockY() - 2));
-        signLoc.setZ(playerLoc.getBlockZ());
+        Location signLoc = findHiddenSignLocation(target);
 
         Block block = signLoc.getBlock();
         BlockState originalState = block.getState();
@@ -391,13 +401,23 @@ public class FalconCheckerManager {
 
             FalconSignUtil.openSignEditor(target, signLoc);
 
+            // Tick +1: send signLoc change to AIR. This triggers client's SignEditScreen.tick() -> finishEditing()
             plugin.getSchedulerAdapter().runEntityTaskLater(target, () -> {
                 if (!target.isOnline() || !activeChecks.containsKey(target.getUniqueId())) return;
                 ActiveCheckData active = activeChecks.get(target.getUniqueId());
                 if (active != null && active.getTimeoutToken() == token) {
-                    FalconSignUtil.closeEditor(target);
+                    FalconSignUtil.closeEditor(target, signLoc);
                 }
             }, 1L);
+
+            // Tick +3: fail-safe fallback in case custom client ignores block change
+            plugin.getSchedulerAdapter().runEntityTaskLater(target, () -> {
+                if (!target.isOnline() || !activeChecks.containsKey(target.getUniqueId())) return;
+                ActiveCheckData active = activeChecks.get(target.getUniqueId());
+                if (active != null && active.getTimeoutToken() == token) {
+                    FalconSignUtil.forceCloseViaContainer(target, plugin);
+                }
+            }, 3L);
         }, 1L);
 
         long timeoutTicks = config.getLong("timeout-ticks", 160L);
@@ -422,6 +442,30 @@ public class FalconCheckerManager {
         }, timeoutTicks);
     }
 
+    private Location findHiddenSignLocation(Player player) {
+        Location playerLoc = player.getLocation();
+        org.bukkit.World world = playerLoc.getWorld();
+        int minHeight = world.getMinHeight();
+        int playerX = playerLoc.getBlockX();
+        int playerY = playerLoc.getBlockY();
+        int playerZ = playerLoc.getBlockZ();
+
+        // 1. Search for a solid opaque block 3 to 7 blocks directly below the player
+        // that is covered from above by another solid opaque block (completely encased underground)
+        for (int y = playerY - 3; y >= Math.max(minHeight + 1, playerY - 7); y--) {
+            Block candidate = world.getBlockAt(playerX, y, playerZ);
+            Block above = world.getBlockAt(playerX, y + 1, playerZ);
+            if (candidate.getType().isOccluding() && above.getType().isOccluding()) {
+                return candidate.getLocation();
+            }
+        }
+
+        // 2. Fallback: place deep down in the bedrock void layer (completely away from view)
+        Location deepLoc = playerLoc.clone();
+        deepLoc.setY(minHeight + 1);
+        return deepLoc;
+    }
+
     public void handleResponse(Player target, String[] lines) {
         if (target == null || isBedrockPlayer(target)) {
             if (target != null) {
@@ -442,8 +486,9 @@ public class FalconCheckerManager {
 
         debug("[" + target.getName() + "] Received sign response lines: " + Arrays.toString(lines));
 
+        Location signLocation = data.getSignLocation();
         cleanupSign(data);
-        FalconSignUtil.closeEditor(target);
+        FalconSignUtil.closeEditor(target, signLocation);
 
         List<HackDefinition> batch = data.getCurrentBatch();
         String detectedMod = null;
@@ -513,24 +558,35 @@ public class FalconCheckerManager {
         String lowerKey = hack.getLowerKey();
         String lowerFallback = hack.getLowerFallback();
 
-        // If line is equal to fallback or key, it's clean
+        // 1. If line is equal to fallback or key, it's clean
         if (clean.equals(lowerFallback) || clean.equals(lowerKey)) {
             return HackResult.NOT_DETECTED;
         }
 
-        // If line contains fallback or key, it's clean
+        // 2. If line contains fallback or key, it's clean
         if (clean.contains(lowerFallback) || clean.contains(lowerKey)) {
             return HackResult.NOT_DETECTED;
         }
 
-        // If line contains untranslated prefixes, client does not have mod translation
-        if (clean.startsWith("key.") || clean.startsWith("text.") || clean.startsWith("gui.")
-                || clean.startsWith("title.") || clean.startsWith("emc.") || clean.startsWith("baritone.")
-                || clean.equals(hack.getId().toLowerCase()) || clean.contains(hack.getId().toLowerCase())) {
+        // 3. Check if raw untranslated key is returned (e.g. key.freecam.toggle, text.autoconfig.freecam.title)
+        // Untranslated keys contain dots and start with key prefix
+        String prefix = hack.getKey().contains(".") ? hack.getKey().substring(0, hack.getKey().indexOf('.') + 1).toLowerCase() : "";
+        if (!prefix.isEmpty() && clean.startsWith(prefix) && clean.contains(".")) {
             return HackResult.NOT_DETECTED;
         }
 
-        // Also check if rawLine contains fallback or key
+        // 4. If line contains common untranslated prefixes with dots (e.g. key.xyz, text.xyz, gui.xyz)
+        if ((clean.startsWith("key.") || clean.startsWith("text.") || clean.startsWith("gui.")
+                || clean.startsWith("title.") || clean.startsWith("emc.") || clean.startsWith("baritone.")
+                || clean.startsWith("liquidbounce.") || clean.startsWith("bleachhack.")
+                || clean.startsWith("wurst.") || clean.startsWith("rusherhack.") || clean.startsWith("future.")
+                || clean.startsWith("xray.") || clean.startsWith("coffee.") || clean.startsWith("lambda.")
+                || clean.startsWith("msg.") || clean.startsWith("category."))
+                && clean.contains(".")) {
+            return HackResult.NOT_DETECTED;
+        }
+
+        // 5. Also check if rawLine contains fallback or key
         String lowerRaw = rawLine.toLowerCase();
         if (lowerRaw.contains(lowerFallback) || lowerRaw.contains(lowerKey)) {
             return HackResult.NOT_DETECTED;
@@ -566,9 +622,14 @@ public class FalconCheckerManager {
     }
 
     public void finishCheck(UUID uuid) {
+        actionedPlayers.remove(uuid);
         ActiveCheckData data = activeChecks.remove(uuid);
         if (data != null) {
             cleanupSign(data);
+            Player player = plugin.getServer().getPlayer(uuid);
+            if (player != null && player.isOnline()) {
+                FalconSignUtil.closeEditor(player, data.getSignLocation());
+            }
         }
     }
 
@@ -643,11 +704,45 @@ public class FalconCheckerManager {
             broadcastToAll(player, cheatName, detectionSource);
             executeAction(player, cheatName, detectionSource);
         }
+
+        if (plugin.getDiscordWebhookManager() != null) {
+            String brand = channelDetector != null ? channelDetector.getBrand(player.getUniqueId()) : "vanilla";
+            if (brand == null || brand.isBlank() || brand.equalsIgnoreCase("unknown")) {
+                try {
+                    String pb = player.getClientBrandName();
+                    if (pb != null && !pb.isBlank()) {
+                        brand = pb;
+                    }
+                } catch (Throwable ignored) {}
+            }
+            if (brand == null || brand.isBlank() || brand.equalsIgnoreCase("unknown")) {
+                brand = "Vanilla";
+            }
+            String loader = channelDetector != null ? channelDetector.getLoaderType(player.getUniqueId()) : brand;
+            String actionDisplay;
+            if (autoCheck) {
+                String actionType = getConfig().getString("action.type", "BAN").toUpperCase();
+                actionDisplay = actionType.equals("BAN") ? "Banned" : (actionType.equals("KICK") ? "Kicked" : actionType);
+            } else {
+                actionDisplay = "Staff Alerted (Manual Check)";
+            }
+            plugin.getDiscordWebhookManager().sendClientCheckerDetection(player, cheatName, detectionSource, actionDisplay, brand, loader);
+        }
+
         finishCheck(player.getUniqueId());
     }
 
     public void clearActioned(UUID uuid) {
         actionedPlayers.remove(uuid);
+    }
+
+    public void clearPlayerData(UUID uuid) {
+        if (uuid == null) return;
+        clearActioned(uuid);
+        finishCheck(uuid);
+        if (channelDetector != null) {
+            channelDetector.clearPlayerData(uuid);
+        }
     }
 
     public void executeAction(Player player, String modName) {
@@ -713,12 +808,7 @@ public class FalconCheckerManager {
                     });
                 } else {
                     getLogger().warning("[FalconChecker] Offend module unavailable; falling back to kick.");
-                    Component message = Component.empty();
-                    for (String line : content) {
-                        Component piece = LegacyComponentSerializer.legacyAmpersand().deserialize(line);
-                        message = message.equals(Component.empty()) ? piece : message.append(Component.newline()).append(piece);
-                    }
-                    player.kick(message);
+                    player.kick(buildKickMessage(content));
                 }
                 break;
             case "message":
@@ -727,12 +817,8 @@ public class FalconCheckerManager {
                 }
                 break;
             case "kick":
-                Component message = Component.empty();
-                for (String line : content) {
-                    Component piece = LegacyComponentSerializer.legacyAmpersand().deserialize(line);
-                    message = message.equals(Component.empty()) ? piece : message.append(Component.newline()).append(piece);
-                }
-                player.kick(message);
+                actionedPlayers.remove(player.getUniqueId());
+                player.kick(buildKickMessage(content));
                 break;
             case "command":
                 for (String cmd : content) {
@@ -744,6 +830,17 @@ public class FalconCheckerManager {
             default:
                 getLogger().warning("[FalconChecker] Unknown action.type \"" + actionType + "\" in config.yml");
         }
+    }
+
+    private Component buildKickMessage(List<String> content) {
+        net.kyori.adventure.text.TextComponent.Builder builder = Component.text();
+        for (int i = 0; i < content.size(); i++) {
+            if (i > 0) {
+                builder.append(Component.newline());
+            }
+            builder.append(LegacyComponentSerializer.legacyAmpersand().deserialize(content.get(i)));
+        }
+        return builder.build();
     }
 
     public void notifyStaff(Player player, String modName, String source) {

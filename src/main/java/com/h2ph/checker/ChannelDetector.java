@@ -7,8 +7,6 @@ import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPluginMessage;
 import com.github.retrooper.packetevents.wrapper.configuration.client.WrapperConfigClientPluginMessage;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
@@ -16,21 +14,16 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerKickEvent;
+import org.bukkit.event.player.PlayerLoginEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRegisterChannelEvent;
 import org.bukkit.plugin.messaging.PluginMessageListener;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeSet;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ChannelDetector implements Listener, PluginMessageListener {
@@ -38,20 +31,62 @@ public class ChannelDetector implements Listener, PluginMessageListener {
     private final FalconCheckerManager manager;
 
     private final Map<UUID, Set<String>> playerChannels = new ConcurrentHashMap<>();
-
     private final Map<UUID, String> playerBrands = new ConcurrentHashMap<>();
-
     private final Map<UUID, String> playerNames = new ConcurrentHashMap<>();
-
     private final Map<UUID, Map<String, String>> detectedCheats = new ConcurrentHashMap<>();
+    private final Set<UUID> spoofedPlayers = ConcurrentHashMap.newKeySet();
 
     private PacketListenerAbstract packetListener;
 
     private static final Map<String, String> BUILTIN_MOD_NAMES = new LinkedHashMap<>();
-
     private static final Map<String, String> KNOWN_CHEAT_SIGNATURES = new LinkedHashMap<>();
+    private static final Set<String> DEFAULT_WHITELISTED_MODS = new HashSet<>();
 
     static {
+        // Whitelisted mods / namespaces that should NEVER be flagged as cheats
+        DEFAULT_WHITELISTED_MODS.add("voicechat");
+        DEFAULT_WHITELISTED_MODS.add("plasmovoice");
+        DEFAULT_WHITELISTED_MODS.add("appleskin");
+        DEFAULT_WHITELISTED_MODS.add("architectury");
+        DEFAULT_WHITELISTED_MODS.add("servux");
+        DEFAULT_WHITELISTED_MODS.add("fabric");
+        DEFAULT_WHITELISTED_MODS.add("fabricloader");
+        DEFAULT_WHITELISTED_MODS.add("fabric-screen-api-v1");
+        DEFAULT_WHITELISTED_MODS.add("fabric-networking-api-v1");
+        DEFAULT_WHITELISTED_MODS.add("xaerominimap");
+        DEFAULT_WHITELISTED_MODS.add("xaeroworldmap");
+        DEFAULT_WHITELISTED_MODS.add("journeymap");
+        DEFAULT_WHITELISTED_MODS.add("litematica");
+        DEFAULT_WHITELISTED_MODS.add("minihud");
+        DEFAULT_WHITELISTED_MODS.add("itemscroller");
+        DEFAULT_WHITELISTED_MODS.add("tweakeroo");
+        DEFAULT_WHITELISTED_MODS.add("malilib");
+        DEFAULT_WHITELISTED_MODS.add("modmenu");
+        DEFAULT_WHITELISTED_MODS.add("iris");
+        DEFAULT_WHITELISTED_MODS.add("sodium");
+        DEFAULT_WHITELISTED_MODS.add("lithium");
+        DEFAULT_WHITELISTED_MODS.add("essential");
+        DEFAULT_WHITELISTED_MODS.add("worldedit");
+        DEFAULT_WHITELISTED_MODS.add("replaymod");
+        DEFAULT_WHITELISTED_MODS.add("emotecraft");
+        DEFAULT_WHITELISTED_MODS.add("wynntils");
+        DEFAULT_WHITELISTED_MODS.add("lunar");
+        DEFAULT_WHITELISTED_MODS.add("lunarclient");
+        DEFAULT_WHITELISTED_MODS.add("badlion");
+        DEFAULT_WHITELISTED_MODS.add("feather");
+        DEFAULT_WHITELISTED_MODS.add("labymod");
+        DEFAULT_WHITELISTED_MODS.add("labymod3");
+        DEFAULT_WHITELISTED_MODS.add("geyser");
+        DEFAULT_WHITELISTED_MODS.add("floodgate");
+        DEFAULT_WHITELISTED_MODS.add("viafabric");
+        DEFAULT_WHITELISTED_MODS.add("viafabricplus");
+        DEFAULT_WHITELISTED_MODS.add("chesttracker");
+        DEFAULT_WHITELISTED_MODS.add("autoreconnect");
+        DEFAULT_WHITELISTED_MODS.add("minecraft");
+        DEFAULT_WHITELISTED_MODS.add("bungeecord");
+        DEFAULT_WHITELISTED_MODS.add("velocity");
+
+        // Verified cheat client and exploit signatures
         KNOWN_CHEAT_SIGNATURES.put("meteor-client", "Meteor Client");
         KNOWN_CHEAT_SIGNATURES.put("meteor", "Meteor Client");
         KNOWN_CHEAT_SIGNATURES.put("meteordevelopment", "Meteor Client");
@@ -71,20 +106,19 @@ public class ChannelDetector implements Listener, PluginMessageListener {
         KNOWN_CHEAT_SIGNATURES.put("chestesp", "ChestESP");
         KNOWN_CHEAT_SIGNATURES.put("orchard", "Orchard Client");
         KNOWN_CHEAT_SIGNATURES.put("xray", "X-Ray Mod");
-        KNOWN_CHEAT_SIGNATURES.put("chesttracker", "Chest Tracker");
         KNOWN_CHEAT_SIGNATURES.put("autofish", "Auto Fish");
         KNOWN_CHEAT_SIGNATURES.put("auto-fish", "Auto Fish");
-        KNOWN_CHEAT_SIGNATURES.put("autoreconnect", "Auto Reconnect");
-        KNOWN_CHEAT_SIGNATURES.put("viafabricplus", "ViaFabricPlus");
-        KNOWN_CHEAT_SIGNATURES.put("viafabric", "ViaFabric");
         KNOWN_CHEAT_SIGNATURES.put("rusherhack", "RusherHack");
         KNOWN_CHEAT_SIGNATURES.put("future", "Future Client");
         KNOWN_CHEAT_SIGNATURES.put("thunderhack", "ThunderHack");
         KNOWN_CHEAT_SIGNATURES.put("inertia", "Inertia");
-        KNOWN_CHEAT_SIGNATURES.put("xaerominimap", "Xaero's Minimap");
-        KNOWN_CHEAT_SIGNATURES.put("xaeroworldmap", "Xaero's World Map");
-        KNOWN_CHEAT_SIGNATURES.put("xaero", "Xaero's Map");
+        KNOWN_CHEAT_SIGNATURES.put("bleachhack", "BleachHack");
+        KNOWN_CHEAT_SIGNATURES.put("coffee", "Coffee Client");
+        KNOWN_CHEAT_SIGNATURES.put("lumina", "Lumina");
+        KNOWN_CHEAT_SIGNATURES.put("cornos", "Cornos");
+        KNOWN_CHEAT_SIGNATURES.put("lambda", "Lambda Client");
 
+        // Built-in friendly mod display names
         BUILTIN_MOD_NAMES.put("voicechat", "Simple Voice Chat");
         BUILTIN_MOD_NAMES.put("plasmovoice", "Plasmo Voice");
         BUILTIN_MOD_NAMES.put("appleskin", "Appleskin");
@@ -117,6 +151,10 @@ public class ChannelDetector implements Listener, PluginMessageListener {
         BUILTIN_MOD_NAMES.put("labymod3", "LabyMod");
         BUILTIN_MOD_NAMES.put("geyser", "Geyser (Bedrock)");
         BUILTIN_MOD_NAMES.put("floodgate", "Floodgate");
+        BUILTIN_MOD_NAMES.put("viafabric", "ViaFabric");
+        BUILTIN_MOD_NAMES.put("viafabricplus", "ViaFabricPlus");
+        BUILTIN_MOD_NAMES.put("chesttracker", "Chest Tracker");
+        BUILTIN_MOD_NAMES.put("autoreconnect", "Auto Reconnect");
     }
 
     public ChannelDetector(FalconCheckerManager manager) {
@@ -130,7 +168,6 @@ public class ChannelDetector implements Listener, PluginMessageListener {
             }
         }
     }
-
 
     @Override
     public void onPluginMessageReceived(String channel, Player player, byte[] message) {
@@ -160,7 +197,6 @@ public class ChannelDetector implements Listener, PluginMessageListener {
 
         recordChannel(player, channel);
     }
-
 
     private void registerPacketListener() {
         this.packetListener = new PacketListenerAbstract() {
@@ -257,6 +293,17 @@ public class ChannelDetector implements Listener, PluginMessageListener {
         }
     }
 
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onAsyncPreLogin(AsyncPlayerPreLoginEvent event) {
+        if (event.getLoginResult() == AsyncPlayerPreLoginEvent.Result.ALLOWED) {
+            manager.clearActioned(event.getUniqueId());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPlayerLogin(PlayerLoginEvent event) {
+        manager.clearActioned(event.getPlayer().getUniqueId());
+    }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
@@ -276,6 +323,10 @@ public class ChannelDetector implements Listener, PluginMessageListener {
             }
         } catch (Throwable ignored) {}
 
+        if (!playerBrands.containsKey(uuid)) {
+            playerBrands.put(uuid, "vanilla");
+        }
+
         manager.getPlugin().getSchedulerAdapter().runEntityTaskLater(player, () -> {
             if (!player.isOnline()) return;
 
@@ -285,10 +336,6 @@ public class ChannelDetector implements Listener, PluginMessageListener {
                     recordBrand(player, brand);
                 }
             } catch (Throwable ignored) {}
-
-            if (!playerBrands.containsKey(uuid)) {
-                playerBrands.put(uuid, "vanilla");
-            }
 
             runJoinInspection(player);
         }, 20L);
@@ -305,8 +352,19 @@ public class ChannelDetector implements Listener, PluginMessageListener {
         String loader = getLoaderType(uuid);
         Set<String> channels = getChannels(uuid);
         Set<String> mods = getDetectedMods(uuid);
-        Map<String, String> cheats = getDetectedCheats(uuid);
 
+        // Anti-Spoof Check: Client brand claims "vanilla", but is running Fabric/Forge or has mods
+        boolean antiSpoofEnabled = manager.getConfig().getBoolean("anti-spoof.enabled", true);
+        boolean vanillaSpoofEnabled = manager.getConfig().getBoolean("anti-spoof.vanilla-spoof.enabled", true);
+        if (antiSpoofEnabled && vanillaSpoofEnabled && isVanillaSpoof(uuid)) {
+            spoofedPlayers.add(uuid);
+            String spoofSource = "Anti-Spoof: Brand claims 'vanilla' but Loader is " + loader + (mods.isEmpty() ? "" : " with " + mods.size() + " mod(s)");
+            String cheatName = manager.getConfig().getString("anti-spoof.vanilla-spoof.detection-name", "Brand Spoofing (Vanilla Spoof)");
+            manager.debug("[" + player.getName() + "] SPOOF DETECTED -> " + spoofSource);
+            recordDetectedCheat(uuid, cheatName, spoofSource);
+        }
+
+        Map<String, String> cheats = getDetectedCheats(uuid);
         String status = cheats.isEmpty() ? "Clean" : "Cheats Detected (" + String.join(", ", cheats.keySet()) + ")";
 
         manager.debug("[" + player.getName() + "] Scan completed -> Brand: " + brand + " | Loader: " + loader + " | Channels: " + channels.size() + " | Mods: " + mods.size() + " | Status: " + status);
@@ -321,6 +379,17 @@ public class ChannelDetector implements Listener, PluginMessageListener {
             for (Map.Entry<String, String> cheat : cheats.entrySet()) {
                 flagCheat(player, cheat.getKey(), cheat.getValue());
             }
+        } else if (cheats.isEmpty()) {
+            if (manager.getPlugin().getDiscordWebhookManager() != null) {
+                manager.getPlugin().getDiscordWebhookManager().sendClientCheckerScan(
+                        player,
+                        brand,
+                        loader,
+                        mods,
+                        channels.size(),
+                        "Clean (Passed)"
+                );
+            }
         }
     }
 
@@ -331,22 +400,22 @@ public class ChannelDetector implements Listener, PluginMessageListener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
-        UUID uuid = event.getPlayer().getUniqueId();
-        playerChannels.remove(uuid);
-        playerBrands.remove(uuid);
-        playerNames.remove(uuid);
-        detectedCheats.remove(uuid);
+        clearPlayerData(event.getPlayer().getUniqueId());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onKick(PlayerKickEvent event) {
-        UUID uuid = event.getPlayer().getUniqueId();
+        clearPlayerData(event.getPlayer().getUniqueId());
+    }
+
+    public void clearPlayerData(UUID uuid) {
+        if (uuid == null) return;
         playerChannels.remove(uuid);
         playerBrands.remove(uuid);
         playerNames.remove(uuid);
         detectedCheats.remove(uuid);
+        spoofedPlayers.remove(uuid);
     }
-
 
     public void recordChannel(Player player, String channel) {
         if (player == null || channel == null || channel.isBlank()) return;
@@ -371,15 +440,12 @@ public class ChannelDetector implements Listener, PluginMessageListener {
             manager.debug("[" + displayName + "] Registered channel: " + channel);
         }
 
-        String lowerChannel = channel.toLowerCase();
-        for (Map.Entry<String, String> entry : KNOWN_CHEAT_SIGNATURES.entrySet()) {
-            if (lowerChannel.startsWith(entry.getKey()) || lowerChannel.contains(entry.getKey() + ":") || lowerChannel.contains(entry.getKey() + "-")) {
-                if (online != null) {
-                    flagCheat(online, entry.getValue(), "Channel: " + channel);
-                } else {
-                    recordDetectedCheat(uuid, entry.getValue(), "Channel: " + channel);
-                }
-                return;
+        String cheatName = checkCheatChannel(channel);
+        if (cheatName != null) {
+            if (online != null) {
+                flagCheat(online, cheatName, "Channel: " + channel);
+            } else {
+                recordDetectedCheat(uuid, cheatName, "Channel: " + channel);
             }
         }
     }
@@ -407,17 +473,127 @@ public class ChannelDetector implements Listener, PluginMessageListener {
             manager.debug("[" + displayName + "] Client brand: " + brand);
         }
 
-        String lowerBrand = brand.toLowerCase();
-        for (Map.Entry<String, String> entry : KNOWN_CHEAT_SIGNATURES.entrySet()) {
-            if (lowerBrand.contains(entry.getKey())) {
-                if (online != null) {
-                    flagCheat(online, entry.getValue(), "Brand: " + brand);
-                } else {
-                    recordDetectedCheat(uuid, entry.getValue(), "Brand: " + brand);
-                }
-                break;
+        String cheatName = checkCheatBrand(brand);
+        if (cheatName != null) {
+            if (online != null) {
+                flagCheat(online, cheatName, "Brand: " + brand);
+            } else {
+                recordDetectedCheat(uuid, cheatName, "Brand: " + brand);
             }
         }
+    }
+
+    public boolean isWhitelistedMod(String namespace) {
+        if (namespace == null || namespace.isBlank()) return false;
+        String lower = namespace.toLowerCase().trim();
+        if (DEFAULT_WHITELISTED_MODS.contains(lower)) {
+            return true;
+        }
+        List<String> configWhitelist = manager.getConfig().getStringList("whitelisted-mods");
+        if (configWhitelist != null) {
+            for (String allowed : configWhitelist) {
+                if (allowed != null && allowed.equalsIgnoreCase(lower)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public String checkCheatChannel(String channel) {
+        if (channel == null || channel.isBlank()) return null;
+        String lowerChannel = channel.toLowerCase().trim();
+        String namespace = extractNamespace(lowerChannel);
+
+        if (isWhitelistedMod(namespace) || isWhitelistedMod(lowerChannel)) {
+            return null;
+        }
+
+        for (Map.Entry<String, String> entry : KNOWN_CHEAT_SIGNATURES.entrySet()) {
+            String sig = entry.getKey().toLowerCase();
+            if (isWhitelistedMod(sig)) continue;
+
+            if (lowerChannel.equals(sig)) {
+                return entry.getValue();
+            }
+            if (namespace != null && namespace.equals(sig)) {
+                return entry.getValue();
+            }
+            if (namespace != null && (namespace.startsWith(sig + "-") || namespace.startsWith(sig + "_"))) {
+                return entry.getValue();
+            }
+            if (lowerChannel.startsWith(sig + ":")) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    public String checkCheatBrand(String brand) {
+        if (brand == null || brand.isBlank()) return null;
+        String lowerBrand = brand.toLowerCase().trim();
+
+        if (isWhitelistedMod(lowerBrand) || lowerBrand.equals("vanilla") || lowerBrand.equals("fabric") || lowerBrand.equals("quilt")
+                || lowerBrand.equals("forge") || lowerBrand.equals("neoforge") || lowerBrand.equals("lunarclient")
+                || lowerBrand.equals("badlion") || lowerBrand.equals("feather")) {
+            return null;
+        }
+
+        for (Map.Entry<String, String> entry : KNOWN_CHEAT_SIGNATURES.entrySet()) {
+            String sig = entry.getKey().toLowerCase();
+            if (isWhitelistedMod(sig)) continue;
+
+            if (lowerBrand.equals(sig) || lowerBrand.contains(sig)) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    public boolean isVanillaBrand(String brand) {
+        if (brand == null || brand.isBlank()) return false;
+        String clean = brand.trim().toLowerCase();
+        return clean.equals("vanilla") || clean.startsWith("vanilla ") || clean.startsWith("vanilla/");
+    }
+
+    public boolean hasModdedChannels(UUID uuid) {
+        Set<String> channels = playerChannels.get(uuid);
+        if (channels == null || channels.isEmpty()) return false;
+        for (String ch : channels) {
+            String lower = ch.toLowerCase();
+            if (lower.startsWith("fabric:") || lower.startsWith("fabric-") || lower.startsWith("fabricloader:")
+                    || lower.startsWith("forge:") || lower.startsWith("fml:") || lower.startsWith("neoforge:")) {
+                return true;
+            }
+            String ns = extractNamespace(lower);
+            if (ns != null && !ns.equals("minecraft") && !ns.equals("bungeecord") && !ns.equals("velocity")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean isVanillaSpoof(UUID uuid) {
+        Player player = org.bukkit.Bukkit.getPlayer(uuid);
+        if (FalconCheckerManager.isBedrock(uuid, playerNames.get(uuid), player)) {
+            return false;
+        }
+
+        String brand = getBrand(uuid);
+        if (!isVanillaBrand(brand)) {
+            return false;
+        }
+
+        boolean fabric = isFabric(uuid);
+        boolean forge = isForge(uuid);
+        Set<String> mods = getDetectedMods(uuid);
+        boolean moddedChannels = hasModdedChannels(uuid);
+
+        return fabric || forge || !mods.isEmpty() || moddedChannels;
+    }
+
+    public boolean isBrandSpoofed(UUID uuid) {
+        return spoofedPlayers.contains(uuid) || isVanillaSpoof(uuid);
     }
 
     public void flagCheat(Player player, String cheatName, String detectionSource) {
@@ -438,7 +614,6 @@ public class ChannelDetector implements Listener, PluginMessageListener {
     public void reload() {
     }
 
-
     public Set<String> getChannels(UUID uuid) {
         Set<String> channels = playerChannels.get(uuid);
         return channels != null ? Collections.unmodifiableSet(channels) : Collections.emptySet();
@@ -450,7 +625,21 @@ public class ChannelDetector implements Listener, PluginMessageListener {
     }
 
     public String getBrand(UUID uuid) {
-        return playerBrands.getOrDefault(uuid, "Unknown");
+        String brand = playerBrands.get(uuid);
+        if (brand != null && !brand.isBlank() && !brand.equalsIgnoreCase("Unknown")) {
+            return brand;
+        }
+        Player online = org.bukkit.Bukkit.getPlayer(uuid);
+        if (online != null) {
+            try {
+                String pb = online.getClientBrandName();
+                if (pb != null && !pb.isBlank()) {
+                    playerBrands.put(uuid, pb);
+                    return pb;
+                }
+            } catch (Throwable ignored) {}
+        }
+        return "vanilla";
     }
 
     public Map<String, String> getDetectedCheats(UUID uuid) {
@@ -485,13 +674,13 @@ public class ChannelDetector implements Listener, PluginMessageListener {
 
         Set<String> detected = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         for (String namespace : namespaces) {
-            if (KNOWN_CHEAT_SIGNATURES.containsKey(namespace)) {
+            if (KNOWN_CHEAT_SIGNATURES.containsKey(namespace) && !isWhitelistedMod(namespace)) {
                 continue;
             }
             String displayName = modNames.get(namespace);
             if (displayName != null) {
                 detected.add(displayName);
-            } else {
+            } else if (!namespace.equals("minecraft") && !namespace.equals("bungeecord") && !namespace.equals("velocity")) {
                 detected.add(capitalize(namespace));
             }
         }
@@ -529,7 +718,7 @@ public class ChannelDetector implements Listener, PluginMessageListener {
         if (brand.contains("lunar")) return "Lunar Client";
         if (brand.contains("feather")) return "Feather Client";
         if (brand.contains("badlion")) return "Badlion Client";
-        return brand.equals("Unknown") ? "Vanilla / Unknown" : capitalize(brand);
+        return (brand.equalsIgnoreCase("unknown") || brand.equalsIgnoreCase("vanilla")) ? "Vanilla" : capitalize(brand);
     }
 
     public boolean isFabric(UUID uuid) {
@@ -540,7 +729,6 @@ public class ChannelDetector implements Listener, PluginMessageListener {
         return getLoaderType(uuid).contains("Forge");
     }
 
-
     public void sendModsReport(CommandSender sender, Player target) {
         UUID uuid = target.getUniqueId();
         Set<String> channels = getChannels(uuid);
@@ -549,6 +737,7 @@ public class ChannelDetector implements Listener, PluginMessageListener {
         int channelCount = getChannelCount(uuid);
         String brand = getBrand(uuid);
         String loader = getLoaderType(uuid);
+        boolean spoofed = isBrandSpoofed(uuid);
 
         sender.sendMessage(
                 LegacyComponentSerializer.legacyAmpersand().deserialize("&c&m---------------------------------"));
@@ -559,10 +748,19 @@ public class ChannelDetector implements Listener, PluginMessageListener {
         String status = cheats.isEmpty() ? "&aClean" : "&cCheats Detected";
         sender.sendMessage(
                 LegacyComponentSerializer.legacyAmpersand().deserialize("&c Status: " + status));
-        sender.sendMessage(
-                LegacyComponentSerializer.legacyAmpersand().deserialize("&c Brand: &f" + brand));
-        sender.sendMessage(
-                LegacyComponentSerializer.legacyAmpersand().deserialize("&c Loader: &f" + loader));
+
+        if (spoofed) {
+            sender.sendMessage(
+                    LegacyComponentSerializer.legacyAmpersand().deserialize("&c Brand: &f" + brand + " &c&l[SPOOFED]"));
+            sender.sendMessage(
+                    LegacyComponentSerializer.legacyAmpersand().deserialize("&c Loader: &c" + loader + " &7(Disguised as Vanilla)"));
+        } else {
+            sender.sendMessage(
+                    LegacyComponentSerializer.legacyAmpersand().deserialize("&c Brand: &f" + brand));
+            sender.sendMessage(
+                    LegacyComponentSerializer.legacyAmpersand().deserialize("&c Loader: &f" + loader));
+        }
+
         sender.sendMessage(
                 LegacyComponentSerializer.legacyAmpersand().deserialize("&c Channels: &f" + channelCount));
 
@@ -585,7 +783,7 @@ public class ChannelDetector implements Listener, PluginMessageListener {
         } else {
             for (String mod : mods) {
                 sender.sendMessage(
-                        LegacyComponentSerializer.legacyAmpersand().deserialize("   &c- &f" + mod));
+                        LegacyComponentSerializer.legacyAmpersand().deserialize("   &a- &f" + mod));
             }
         }
 
@@ -620,9 +818,10 @@ public class ChannelDetector implements Listener, PluginMessageListener {
         }
         playerChannels.clear();
         playerBrands.clear();
+        playerNames.clear();
         detectedCheats.clear();
+        spoofedPlayers.clear();
     }
-
 
     private String extractNamespace(String channel) {
         if (channel == null || channel.isEmpty()) return null;

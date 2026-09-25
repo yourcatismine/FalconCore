@@ -112,15 +112,49 @@ public class FalconSignUtil {
     }
 
     public static void closeEditor(Player player) {
+        closeEditor(player, null);
+    }
+
+    public static void closeEditor(Player player, Location signLoc) {
         if (player == null || !player.isOnline()) return;
+
+        // 1. Send client-side block change destroying the sign.
+        // In vanilla Minecraft client: SignEditScreen.tick() verifies if the block entity at signLoc is still a valid sign.
+        // Once it becomes air, isValid() evaluates to false and client immediately runs finishEditing(),
+        // dispatching the UpdateSignPacket with translations and setting screen to null without opening any container window!
+        if (signLoc != null) {
+            try {
+                player.sendBlockChange(signLoc, org.bukkit.Material.AIR.createBlockData());
+            } catch (Throwable ignored) {}
+        }
+
         try {
             WrapperPlayServerCloseWindow packet = new WrapperPlayServerCloseWindow(0);
             PacketEvents.getAPI().getPlayerManager().sendPacket(player, packet);
         } catch (Throwable ignored) {}
         try {
+            player.closeInventory();
+        } catch (Throwable ignored) {}
+    }
+
+    public static void forceCloseViaContainer(Player player) {
+        forceCloseViaContainer(player, null);
+    }
+
+    public static void forceCloseViaContainer(Player player, Plugin plugin) {
+        if (player == null || !player.isOnline()) return;
+        try {
             org.bukkit.inventory.Inventory dummy = org.bukkit.Bukkit.createInventory(null, 9, net.kyori.adventure.text.Component.empty());
             player.openInventory(dummy);
-            player.closeInventory();
+            if (plugin != null) {
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    if (player.isOnline()) {
+                        player.closeInventory();
+                    }
+                });
+            } else {
+                player.closeInventory();
+            }
         } catch (Throwable ignored) {}
     }
 

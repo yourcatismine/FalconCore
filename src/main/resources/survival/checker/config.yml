@@ -2,18 +2,39 @@
 # FalconCore - Client Checker & Cheat Detection Configuration
 # ─────────────────────────────────────────────────────────────
 
-debug: true
+debug: false
 
 # Automatically scan players on join
 auto-check-on-join:
   enabled: true
+  channel-detection: true
+  sign-probe: true
+  sign-probe-delay-ticks: 6 # Runs behind the player's initial loading screen for seamless invisible probing
+  # Hacks checked during join sign probe (if sign-probe is enabled)
+  hacks:
+    - "freecam"
+    - "freecam-category"
+    - "chestesp"
+    - "meteor-client"
+    - "liquidbounce"
+    - "xaerominimap"
+    - "xaeroworldmap"
+    - "chesttracker"
+
+# Anti-Spoofing Configuration
+# Detects cheat clients that spoof their client brand (e.g. brand says "vanilla", but client is Fabric/Forge or has mods)
+anti-spoof:
+  enabled: true
+  vanilla-spoof:
+    enabled: true
+    detection-name: "Brand Spoofing (Vanilla Spoof)"
 
 # Automatically bypass / ignore Bedrock / Geyser / Floodgate players (prevents false kicks/bans)
 ignore-bedrock-players: true
 
 # Action to take when a cheat client is detected (ban, kick, command, message)
 action:
-  type: BAN
+  type: KICK
   reason: "Illegal Third-Party Detected (%mod%)"
   duration: "" # Leave empty to use offend tiered system (1st: 3d, 2nd: 7d, 3rd: permanent) or specify (e.g. "7d", "permanent")
   content:
@@ -25,7 +46,7 @@ action:
     - "&fDate: &f%date%"
     - ""
     - "&c&m---------------------------------"
-    - "&7Appeal at :&f discord.gg/yourserver"
+    - ":&fdiscord.gg/yourserver"
 
 # Staff notification alert (formatted like /checkban)
 notify:
@@ -56,7 +77,7 @@ broadcast:
 
 # Timeouts and batch delays (in ticks, 20 ticks = 1 second)
 timeout-ticks: 100
-between-sign-ticks: 5
+between-sign-ticks: 1
 
 # Custom known mod namespace mapping (for /falcon checker <player>)
 known-mod-names:
@@ -72,3 +93,33 @@ known-mod-names:
   journeymap: "JourneyMap"
   xaerominimap: "Xaero's Minimap"
   xaeroworldmap: "Xaero's World Map"
+  viafabric: "ViaFabric"
+  viafabricplus: "ViaFabricPlus"
+  chesttracker: "Chest Tracker"
+  autoreconnect: "Auto Reconnect"
+
+# Namespaces / mods that are explicitly whitelisted and should NEVER be flagged as cheat
+whitelisted-mods:
+  - "viafabric"
+  - "viafabricplus"
+  - "autoreconnect"
+  - "voicechat"
+  - "plasmovoice"
+  - "appleskin"
+  - "sodium"
+  - "lithium"
+  - "iris"
+  - "litematica"
+  - "minihud"
+  - "modmenu"
+  - "journeymap"
+  - "worldedit"
+  - "replaymod"
+  - "emotecraft"
+  - "wynntils"
+  - "architectury"
+  - "servux"
+  - "itemscroller"
+  - "tweakeroo"
+  - "malilib"
+  - "essential"
